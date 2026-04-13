@@ -1,0 +1,37 @@
+[Unit]
+Description=Pi Bodycam Recorder
+After=network.target
+
+# If you want to wait for camera devices:
+After=dev-video0.device
+Requires=dev-video0.device
+
+[Service]
+Type=simple
+
+# Run as a normal user (recommended)
+User=pi
+Group=pi
+
+WorkingDirectory=/home/dapixelprowler/pi-recorder
+
+ExecStart=/usr/bin/python3 /home/pi/pi-recorder/recorder.py
+
+Restart=always
+RestartSec=5
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+
+# Security hardening (reasonable defaults)
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+
+# Allow writing only where needed
+ReadWritePaths=/home/dapixelprowler/pi-recorder/recordings
+
+[Install]
+WantedBy=multi-user.target

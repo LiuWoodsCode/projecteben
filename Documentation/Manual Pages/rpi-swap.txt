@@ -1,0 +1,82 @@
+RPI-SWAP-GENERATOR(8)                                         System Manager's Manual                                         RPI-SWAP-GENERATOR(8)
+
+NAME
+       rpi-swap-generator - systemd generator for Raspberry Pi swap management
+
+SYNOPSIS
+       /lib/systemd/system-generators/rpi-swap-generator
+
+DESCRIPTION
+       rpi-swap-generator is a systemd generator that automatically configures swap during early boot based on system requirements and user prefer‐
+       ences. It is part of the rpi-swap package designed specifically for Raspberry Pi systems.
+
+       The generator dynamically creates systemd units to implement various swap mechanisms, including traditional swap files, compressed RAM-based
+       swap  (zram),  and  hybrid approaches. A key feature is its ability to resize swap files during early boot, which is crucial for memory-con‐
+       strained systems where performing swapoff/resize/swapon operations later might not be possible or desirable.
+
+KEY FEATURES
+       Dynamic swap sizing
+              Automatically calculates appropriate swap sizes based on available memory and storage.
+
+       Early boot resize
+              Resizes swap files during early boot before they are activated, avoiding memory pressure during resize operations.
+
+       Multiple swap mechanisms
+              Supports traditional swap files, zram compression, and hybrid zram+file approaches.
+
+       Automatic writeback
+              For hybrid configurations, implements intelligent writeback of less active pages from compressed memory to storage.
+
+       Performance optimisation
+              Automatically configures kernel parameters to optimise zram performance, including disabling readahead (vm.page-cluster=0) to  reduce
+              latency on compressed swap devices.
+
+CONFIGURATION
+       Configuration  is  handled  through swap.conf(5). The generator reads this configuration and creates the appropriate systemd units automati‐
+       cally.
+
+   Configuration Changes
+       WARNING: After modifying swap configuration, you must reboot the system for changes to take effect.
+
+       While systemctl daemon-reload will regenerate systemd units based on the new configuration, it does not stop existing swap  units  or  start
+       new ones.
+
+MONITORING
+       To monitor the swap units created by the generator and verify they are functioning correctly, use:
+
+              systemctl list-units --type swap
+
+       This  command  shows all active swap units, their status, and whether they have reached the swap.target. You can also check the overall swap
+       target status:
+
+              systemctl status swap.target
+
+       For hybrid configurations with writeback timers, monitor the writeback operations using:
+
+              systemctl list-timers rpi-zram-writeback.timer
+
+FILES
+       /etc/rpi/swap.conf
+              Main configuration file.
+
+       /lib/systemd/system-generators/rpi-swap-generator
+              The generator script itself.
+
+       /run/sysctl.d/70-rpi-swap.conf
+              Kernel parameter configuration file automatically created for zram performance optimizations.
+
+SEE ALSO
+       swap.conf(5), systemd.generator(7), systemd.swap(5)
+
+NOTES
+       This generator is invoked automatically by systemd during boot. Manual invocation is generally not necessary  unless  testing  configuration
+       changes.
+
+       For testing configuration changes without rebooting, the generator can be run manually:
+
+              sudo /lib/systemd/system-generators/rpi-swap-generator /tmp/gen /tmp/gen-early /tmp/gen-late
+
+       This will create the systemd units in temporary directories where they can be inspected before committing to the changes with a reboot. How‐
+       ever, note that this is only suitable for testing - the units must be generated during early boot to function correctly.
+
+rpi-swap System Administration                                        rpi-swap                                                RPI-SWAP-GENERATOR(8)
