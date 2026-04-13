@@ -1,0 +1,9 @@
+*.zip
+userdata/
+logs/
+config.json
+*.pyc
+*/__pycache__/
+apps/*/__pycache__/
+drivers/__pycache__/
+.codex
