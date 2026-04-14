@@ -23,7 +23,9 @@ import re
 import shutil
 import signal
 import subprocess
-
+import webbrowser
+from tkinter import Tk, filedialog
+from pathlib import Path
 import psutil
 
 
@@ -76,6 +78,12 @@ class ProcessInfo:
     cpu_percent: float
     mem_percent: float
 
+@dataclass(frozen=True)
+class Identification:
+    """Basic process information."""
+
+    machine: str
+    boot: str
 
 class Api:
     """Small helper for Raspberry Pi / Linux host system queries.
@@ -358,7 +366,7 @@ class Api:
         return "unknown"
     
     def revision(self) -> str:
-        if self.dry_run:
+        if self.dry_run != "posix":
             return "stub"
         try:
             with open("/proc/cpuinfo", "r") as f:
@@ -508,14 +516,25 @@ class Api:
             "content_type": self._content_type_for_path(target),
         }
 
-    def download_file(self, source_path: str) -> dict:
-        """Read a file under the home directory.
+    def download_file(self) -> dict:
+        """Open a file picker and read a file selected by the user."""
 
-        Args:
-            source_path: File path relative to the home directory or an absolute
-                path inside the home directory.
-        """
-        source = self._resolve_home_path(source_path)
+		# Initialize Tkinter without showing a root window
+        root = Tk()
+        root.withdraw()
+        root.update()
+
+        file_path = filedialog.askopenfilename(
+			title="Select a file to download"
+		)
+
+        root.destroy()
+
+        if not file_path:
+            raise FileNotFoundError("No file selected")
+
+        source = Path(file_path)
+
         if not source.exists():
             raise FileNotFoundError(str(source))
         if source.is_dir():
@@ -525,9 +544,30 @@ class Api:
         if size > self.MAX_FILE_BYTES:
             raise ValueError("File exceeds the 512 MB limit")
 
+        name = Path(file_path).name
+
         return {
             "path": str(source),
+            "filename": str(name),
             "data": source.read_bytes(),
             "content_type": self._content_type_for_path(source),
             "size_bytes": size,
         }
+
+    
+    def open_website(self, url: str):
+        try:
+            wb = webbrowser.open(url)
+            if wb:
+                return {
+                    "ok": True
+                }
+            else:
+                return {
+                    "ok": False
+                }
+        except Exception as e:
+            return {
+                "ok": False,
+                "error": e
+            }

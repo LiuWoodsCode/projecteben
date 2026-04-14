@@ -54,33 +54,40 @@ class Request:
 ########################################
 class Response:
 
-    def __init__(self, body, status=200, content_type="text/plain"):
+    def __init__(self, body, status=200, content_type="text/plain", headers={}):
         self.body = body
         self.status = status
         self.content_type = content_type
+        self.headers = headers
 
 
 class JsonResponse(Response):
-    def __init__(self, obj, status=200):
+    def __init__(self, obj, status=200, headers={}):
         super().__init__(
             json.dumps(obj).encode(),
             status,
-            "application/json"
+            "application/json",
+            headers
         )
 
 
 class TextResponse(Response):
-    def __init__(self, text, status=200):
+    def __init__(self, text, status=200, headers={}):
         super().__init__(
             text.encode("utf-8"),
             status,
-            "text/plain"
+            "text/plain",
+            headers
         )
 
 
 class BinaryResponse(Response):
-    def __init__(self, data, content_type="application/octet-stream", status=200):
-        super().__init__(data, status, content_type)
+    def __init__(self, data, content_type="application/octet-stream", status=200, headers={}):
+        super().__init__(data, status, content_type, headers)
+
+class BinaryResponseForProjectEbenFileDownload(Response):
+    def __init__(self, data, content_type="application/octet-stream", status=200, filename="niko.bin"):
+        super().__init__(data, status, content_type, filename)
 
 
 class FileResponse(Response):
@@ -181,6 +188,9 @@ class App:
 
                 self.send_response(response.status)
                 self.send_header("Content-Type", response.content_type)
+                if response.filename:
+                    # self.send_header("Content-Disposition", f"attachment; filename="{response.filename}")
+                    print(hi)
                 self.send_header("Content-Length", str(len(response.body)))
                 self.end_headers()
 
@@ -252,3 +262,4 @@ class App:
         server = HTTPServer((host, port), Handler)
         print(f"API running http://{host}:{port}")
         server.serve_forever()
+        

@@ -1,7 +1,7 @@
 import sys
 from dataclasses import asdict
-import datetime
-from flaskish import App, BinaryResponse
+
+from flaskish import App, BinaryResponse, TextResponse
 import backend as backend
 backend = backend.Api()
 app = App()
@@ -45,9 +45,13 @@ def linux_ver(req):
 def hostname(req):
     return backend.hostname()
 
-@app.get("/settings/time")
-def get_time(req):
-    return str(datetime.datetime.now()), 200
+@app.get("/thermal/gpu")
+def gputemp(req):
+    return backend.gpu_temperature_c()
+
+@app.get("/thermal/cpu")
+def cputemp(req):
+    return backend.cpu_temperature_c()
 
 @app.post("/settings/time")
 def set_time(req):
@@ -184,7 +188,6 @@ def upload_file(req):
         **result,
     }
 
-
 @app.get("/files/download")
 def download_file(req):
     source_path = _get_file_path(req)
@@ -192,7 +195,7 @@ def download_file(req):
         return {"ok": False, "error": "Missing file path"}, 400
 
     try:
-        result = backend.download_file(source_path)
+        result = backend.download_file()
     except PermissionError as exc:
         return {"ok": False, "error": str(exc)}, 403
     except FileNotFoundError:
@@ -205,6 +208,10 @@ def download_file(req):
         return {"ok": False, "error": str(exc)}, 500
 
     return BinaryResponse(result["data"], content_type=result["content_type"])
+
+@app.get("/test")
+def test(req):
+    return TextResponse("Hello", 200, {"hello": "content"})
 
 try:
     app.run()
