@@ -215,6 +215,24 @@
             rfb.clipboardPasteFrom(text)
         }
 
+        async function writeClipboard(text) {
+            if (!navigator.clipboard || !navigator.clipboard.writeText) {
+                return false;
+            }
+
+            try {
+                await navigator.clipboard.writeText(text);
+                return true;
+            } catch (error) {
+                console.error("Clipboard write failed:", error);
+                return false;
+            }
+        }
+
+        function clipboardReceived(e) {
+            writeClipboard(e.detail.text);
+        }
+
         document.addEventListener('keydown', handleRemoteShortcut, true);
         window.addEventListener('blur', releaseRemoteInput);
         window.addEventListener('focus', focusRemoteInput);
@@ -263,6 +281,7 @@
         rfb.addEventListener("credentialsrequired", credentialsAreRequired);
         rfb.addEventListener("desktopname", updateDesktopName);
         rfb.addEventListener("securityfailure", securityFailed);
+        rfb.addEventListener("clipboard", clipboardReceived);
         rfb.focusOnClick = true;
 
         // Set parameters that can be changed on an active connection
