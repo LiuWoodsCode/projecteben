@@ -27,7 +27,8 @@ import webbrowser
 from tkinter import Tk, filedialog
 from pathlib import Path
 import psutil
-
+import stat as stat_module
+from datetime import datetime
 
 @dataclass(frozen=True)
 class CommandResult:
@@ -519,14 +520,14 @@ class Api:
     def download_file(self) -> dict:
         """Open a file picker and read a file selected by the user."""
 
-		# Initialize Tkinter without showing a root window
+        # Initialize Tkinter without showing a root window
         root = Tk()
         root.withdraw()
         root.update()
 
         file_path = filedialog.askopenfilename(
-			title="Select a file to download"
-		)
+            title="Select a file to download"
+        )
 
         root.destroy()
 
@@ -540,20 +541,33 @@ class Api:
         if source.is_dir():
             raise IsADirectoryError(str(source))
 
-        size = source.stat().st_size
+        file_stat = source.stat()
+
+        size = file_stat.st_size
         if size > self.MAX_FILE_BYTES:
             raise ValueError("File exceeds the 512 MB limit")
 
-        name = Path(file_path).name
+        name = source.name
+
+        # Extract useful stat info
+        metadata = {
+            "created": datetime.fromtimestamp(file_stat.st_ctime),
+            "modified": datetime.fromtimestamp(file_stat.st_mtime),
+            "accessed": datetime.fromtimestamp(file_stat.st_atime),
+            "mode": file_stat.st_mode,
+            "is_readable": bool(file_stat.st_mode & stat_module.S_IRUSR),
+            "is_writable": bool(file_stat.st_mode & stat_module.S_IWUSR),
+            "is_executable": bool(file_stat.st_mode & stat_module.S_IXUSR),
+        }
 
         return {
             "path": str(source),
-            "filename": str(name),
+            "filename": name,
             "data": source.read_bytes(),
             "content_type": self._content_type_for_path(source),
             "size_bytes": size,
+            "metadata": metadata,
         }
-
     
     def open_website(self, url: str):
         try:
