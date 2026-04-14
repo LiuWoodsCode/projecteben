@@ -93,7 +93,6 @@ class MainWindow(QMainWindow):
         QWebEngineSettings.setAttribute(self.view.settings(), QWebEngineSettings.WebAttribute.Accelerated2dCanvasEnabled, True)
         QWebEngineSettings.setAttribute(self.view.settings(), QWebEngineSettings.WebAttribute.JavascriptCanOpenWindows, False)
         QWebEngineSettings.setAttribute(self.view.settings(), QWebEngineSettings.WebAttribute.NavigateOnDropEnabled, False)
-        QWebEngineSettings.setAttribute(self.view.settings(), QWebEngineSettings.WebAttribute.BackForwardCacheEnabled, False)
         QWebEngineSettings.setAttribute(self.view.settings(), QWebEngineSettings.WebAttribute.ScreenCaptureEnabled, False)
         self.setCentralWidget(self.view)
 
