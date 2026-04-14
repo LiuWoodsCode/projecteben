@@ -1,3 +1,4 @@
+import argparse
 import sys
 import os
 import json
@@ -72,7 +73,7 @@ def start_http_server():
 
 
 class MainWindow(QMainWindow):
-    def __init__(self, port: int, app: QApplication):
+    def __init__(self, port: int, app: QApplication, force_no_global_menu: bool = False):
         super().__init__()
 
         self.app = app
@@ -96,7 +97,11 @@ class MainWindow(QMainWindow):
         QWebEngineSettings.setAttribute(self.view.settings(), QWebEngineSettings.WebAttribute.ScreenCaptureEnabled, False)
         self.setCentralWidget(self.view)
 
-        tools_menu = self.menuBar().addMenu("Tools")
+        menu_bar = self.menuBar()
+        if force_no_global_menu:
+            menu_bar.setNativeMenuBar(False)
+
+        tools_menu = menu_bar.addMenu("Tools")
         devtools_action = QAction("Open DevTools", self)
         devtools_action.triggered.connect(self.open_devtools)
         tools_menu.addAction(devtools_action)
@@ -104,7 +109,7 @@ class MainWindow(QMainWindow):
         refresh_action.triggered.connect(self.refresh_page)
         tools_menu.addAction(refresh_action)
 
-        device_menu = self.menuBar().addMenu("Device")
+        device_menu = menu_bar.addMenu("Device")
         self._add_api_action(device_menu, "Model", partial(self._api_get_text, "/device/model", "Device Model"))
         self._add_api_action(device_menu, "Serial", partial(self._api_get_text, "/device/serial", "Device Serial"))
         self._add_api_action(device_menu, "Revision", partial(self._api_get_text, "/device/revision", "Device Revision"))
@@ -115,34 +120,34 @@ class MainWindow(QMainWindow):
         self._add_api_action(device_menu, "Disk Usage", partial(self._api_get_json, "/device/resource/disk", "Disk Usage"))
         self._add_api_action(device_menu, "Memory Usage", partial(self._api_get_json, "/device/resource/mem", "Memory Usage"))
 
-        vnc_menu = self.menuBar().addMenu("VNC")
+        vnc_menu = menu_bar.addMenu("VNC")
         self._add_api_action(vnc_menu, "Start wayvnc", partial(self._api_post_json, "/vnc/start", "Start wayvnc"))
         self._add_api_action(vnc_menu, "Start wayvnc websocket", partial(self._api_post_json, "/vnc/start/websocket", "Start wayvnc websocket"))
         self._add_api_action(vnc_menu, "Start wayvnc + noVNC", partial(self._api_post_json, "/vnc/start/novnc", "Start wayvnc + noVNC"))
         self._add_api_action(vnc_menu, "Stop wayvnc", partial(self._api_post_json, "/vnc/stop", "Stop wayvnc"))
         self._add_api_action(vnc_menu, "Stop noVNC", partial(self._api_post_json, "/vnc/stop/novnc", "Stop noVNC"))
 
-        power_menu = self.menuBar().addMenu("Power")
+        power_menu = menu_bar.addMenu("Power")
         self._add_api_action(power_menu, "Restart", partial(self._confirm_and_post, "Restart", "This will reboot the system.", "/power/restart", "Restart"))
         self._add_api_action(power_menu, "Power off", partial(self._confirm_and_post, "Power off", "This will shut the system down.", "/power/poweroff", "Power off"))
         self._add_api_action(power_menu, "Sleep", partial(self._confirm_and_post, "Sleep", "This will suspend the system.", "/power/sleep", "Sleep"))
         self._add_api_action(power_menu, "Hibernate", partial(self._confirm_and_post, "Hibernate", "This will hibernate the system.", "/power/hibernate", "Hibernate"))
 
-        settings_menu = self.menuBar().addMenu("Settings")
+        settings_menu = menu_bar.addMenu("Settings")
         self._add_api_action(settings_menu, "Set Time...", self._set_system_time)
         self._add_api_action(settings_menu, "Sync Pi Clock to System Time", self._sync_pi_clock_to_system_time)
 
-        files_menu = self.menuBar().addMenu("Files")
+        files_menu = menu_bar.addMenu("Files")
         self._add_api_action(files_menu, "Upload File...", self._upload_file_via_dialog)
         self._add_api_action(files_menu, "Download File...", self._download_file_via_dialog)
 
-        view_menu = self.menuBar().addMenu("View")
+        view_menu = menu_bar.addMenu("View")
         self.fullscreen_action = QAction("Fullscreen", self)
         self.fullscreen_action.setCheckable(True)
         self.fullscreen_action.triggered.connect(self.toggle_fullscreen)
         view_menu.addAction(self.fullscreen_action)
 
-        help_menu = self.menuBar().addMenu("Help")
+        help_menu = menu_bar.addMenu("Help")
         self._add_api_action(help_menu, "About Qt", self._about_qt)
 
         self.devtools_view = None
@@ -655,17 +660,28 @@ def main():
     if not os.path.isdir(WEB_ROOT):
         raise FileNotFoundError(f"Missing web root: {WEB_ROOT}")
 
+    parser = argparse.ArgumentParser(add_help=False)
+    parser.add_argument("--force-no-global-menu", action="store_true")
+    args, qt_args = parser.parse_known_args()
+
     relaunch_under_x_if_needed()
+
+    if args.force_no_global_menu:
+        QApplication.setAttribute(Qt.ApplicationAttribute.AA_DontUseNativeMenuBar, True)
 
     server, port = start_http_server()
 
-    app = QApplication(sys.argv)
+    app = QApplication([sys.argv[0], *qt_args])
     app.setApplicationDisplayName("Eben Desktop")
     app.setApplicationName("Eben Desktop")
 
-    window = MainWindow(port, app) 
-    model = _api_request(None, "GET", "/device/model")
-    hostname = _api_request(None, "GET", "/device/hostname")
+    window = MainWindow(port, app, force_no_global_menu=args.force_no_global_menu)
+    try:
+        model = _api_request(None, "GET", "/device/model")
+        hostname = _api_request(None, "GET", "/device/hostname")
+    except:
+        model = "N/A"
+        hostname = "N/A"
     title = f"{hostname} ({model})"
     window.setWindowTitle(title)
     window.resize(1000, 700)
