@@ -472,7 +472,23 @@ class Api:
 
         self._novnc_proc = None
         return True
-    
+
+    def get_vnc_status(self) -> dict:
+        """Get the status of wayvnc and noVNC processes."""
+        wayvnc_running = self._wayvnc_proc and self._wayvnc_proc.poll() is None
+        novnc_running = self._novnc_proc and self._novnc_proc.poll() is None
+
+        return {
+            "wayvnc": {
+                "running": wayvnc_running,
+                "pid": self._wayvnc_proc.pid if wayvnc_running else None,
+            },
+            "novnc": {
+                "running": novnc_running,
+                "pid": self._novnc_proc.pid if novnc_running else None,
+            }
+        }
+
     def set_time(self, datetime_str: str) -> CommandResult:
         """Set the system date and time.
 

@@ -143,6 +143,10 @@ def vnc_stop_novnc(req):
 
     return {"ok": True, "stopped": stopped}
 
+@app.get("/vnc/status")
+def vncstatus(req):
+    return backend.get_vnc_status
+
 @app.get("/power/restart")
 def restart(req):
     backend.reboot()
