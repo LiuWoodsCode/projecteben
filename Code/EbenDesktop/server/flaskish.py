@@ -54,15 +54,15 @@ class Request:
 ########################################
 class Response:
 
-    def __init__(self, body, status=200, content_type="text/plain", headers={}):
+    def __init__(self, body, status=200, content_type="text/plain", headers=None):
         self.body = body
         self.status = status
         self.content_type = content_type
-        self.headers = headers
+        self.headers = dict(headers or {})
 
 
 class JsonResponse(Response):
-    def __init__(self, obj, status=200, headers={}):
+    def __init__(self, obj, status=200, headers=None):
         super().__init__(
             json.dumps(obj).encode(),
             status,
@@ -72,7 +72,7 @@ class JsonResponse(Response):
 
 
 class TextResponse(Response):
-    def __init__(self, text, status=200, headers={}):
+    def __init__(self, text, status=200, headers=None):
         super().__init__(
             text.encode("utf-8"),
             status,
@@ -82,16 +82,12 @@ class TextResponse(Response):
 
 
 class BinaryResponse(Response):
-    def __init__(self, data, content_type="application/octet-stream", status=200, headers={}):
+    def __init__(self, data, content_type="application/octet-stream", status=200, headers=None):
         super().__init__(data, status, content_type, headers)
-
-class BinaryResponseForProjectEbenFileDownload(Response):
-    def __init__(self, data, content_type="application/octet-stream", status=200, filename="niko.bin"):
-        super().__init__(data, status, content_type, filename)
 
 
 class FileResponse(Response):
-    def __init__(self, filepath, status=200):
+    def __init__(self, filepath, status=200, headers=None):
 
         if not os.path.exists(filepath):
             raise FileNotFoundError(filepath)
@@ -102,7 +98,7 @@ class FileResponse(Response):
         with open(filepath, "rb") as f:
             data = f.read()
 
-        super().__init__(data, status, mime)
+        super().__init__(data, status, mime, headers)
 
 
 ########################################
@@ -188,9 +184,8 @@ class App:
 
                 self.send_response(response.status)
                 self.send_header("Content-Type", response.content_type)
-                if response.filename:
-                    # self.send_header("Content-Disposition", f"attachment; filename="{response.filename}")
-                    print(hi)
+                for header_name, header_value in response.headers.items():
+                    self.send_header(header_name, str(header_value))
                 self.send_header("Content-Length", str(len(response.body)))
                 self.end_headers()
 
