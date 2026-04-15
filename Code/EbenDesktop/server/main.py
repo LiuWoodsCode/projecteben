@@ -199,7 +199,7 @@ def download_file(req):
         return {"ok": False, "error": "Missing file path"}, 400
 
     try:
-        result = backend.download_file()
+        result = backend.download_file(source_path)
     except PermissionError as exc:
         return {"ok": False, "error": str(exc)}, 403
     except FileNotFoundError:

@@ -315,6 +315,7 @@ class MainWindow(QMainWindow):
             f"Status: {response['status']}\nContent-Type: {response['content_type']}\nBytes written: {len(response['body'])}",
         )
 
+
     def _run_page_hook(self, script):
         self.view.page().runJavaScript(script)
 
