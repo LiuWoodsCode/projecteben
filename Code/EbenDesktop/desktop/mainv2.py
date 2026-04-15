@@ -178,7 +178,7 @@ class RemoteDeviceClient:
                 "cpu_temp": lambda: self.get_text("/thermal/cpu", default="Unknown"),
                 "gpu_temp": lambda: self.get_text("/thermal/gpu", default="Unknown"),
                 "memory": lambda: self.get_json("/device/resource/mem", default={}) or {},
-                "disks": lambda: self.get_json("/device/resource/disk", default=[]) or [],
+                "disks": lambda: self.get_text("/device/resource/disk", default=[]) or [],
             })
 
             hostname = results.get("hostname", "Unknown")
@@ -197,7 +197,7 @@ class RemoteDeviceClient:
                 cpu_temp=self._format_temperature(results.get("cpu_temp", "Unknown")),
                 gpu_temp=self._format_temperature(results.get("gpu_temp", "Unknown")),
                 memory=self._format_memory(results.get("memory", {})),
-                disks=self._format_disk_count(results.get("disks", [])),
+                disks=results.get("disks", "Unknown"),
                 unavailable=unavailable,
             )
         except Exception as exc:
