@@ -547,7 +547,7 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
 
-        self.setWindowTitle("Pi Device Browser")
+        self.setWindowTitle("Eben Desktop")
         self.resize(1140, 720)
         self.setMinimumSize(900, 560)
 
