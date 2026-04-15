@@ -786,8 +786,7 @@ class MainWindow(QMainWindow):
 
         script_path = os.path.join(os.path.dirname(__file__), "main.py")
         command = [sys.executable, script_path, "--host", snapshot.host]
-        if QApplication.testAttribute(Qt.ApplicationAttribute.AA_DontUseNativeMenuBar):
-            command.append("--force-no-global-menu")
+        command.append("--force-no-global-menu")
 
         try:
             subprocess.Popen(command, cwd=os.path.dirname(script_path), start_new_session=True)
