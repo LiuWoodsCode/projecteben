@@ -6,9 +6,6 @@ import threading
 from datetime import datetime
 from functools import partial
 from time import sleep
-from urllib.error import HTTPError, URLError
-from urllib.parse import urlencode
-from urllib.request import Request, urlopen
 from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler
 
 from PySide6.QtCore import QEvent, QUrl, Qt
@@ -16,6 +13,8 @@ from PySide6.QtGui import QAction
 from PySide6.QtWidgets import QApplication, QFileDialog, QInputDialog, QMainWindow, QMessageBox
 from PySide6.QtWebEngineCore import QWebEnginePage, QWebEngineSettings
 from PySide6.QtWebEngineWidgets import QWebEngineView
+
+from eben_api import EbenApi
 
 
 WEB_ROOT = os.path.abspath(".")
@@ -79,7 +78,7 @@ class MainWindow(QMainWindow):
         self.app = app
         self.port = port
         self.setWindowTitle("Project Eben")
-        self.api_base_url = os.environ.get("EBEN_API_BASE_URL", "http://10.42.1.1:8000").rstrip("/")
+        self.api = EbenApi()
 
         self.page = MessageBoxPage(self)
         self.view = QWebEngineView(self)
@@ -161,41 +160,8 @@ class MainWindow(QMainWindow):
         action.triggered.connect(handler)
         menu.addAction(action)
 
-    def _api_url(self, path, query=None):
-        url = f"{self.api_base_url}{path}"
-        if query:
-            url = f"{url}?{urlencode(query)}"
-        return url
-
     def _api_request(self, method, path, query=None, json_body=None, data=None):
-        headers = {}
-        payload = data
-
-        if json_body is not None:
-            payload = json.dumps(json_body).encode("utf-8")
-            headers["Content-Type"] = "application/json"
-
-        request = Request(self._api_url(path, query), data=payload, headers=headers, method=method)
-
-        try:
-            with urlopen(request, timeout=10) as response:
-                body = response.read()
-                content_type = response.headers.get_content_type()
-                charset = response.headers.get_content_charset() or "utf-8"
-                text = body.decode(charset, errors="replace")
-                return {
-                    "status": response.status,
-                    "content_type": content_type,
-                    "body": body,
-                    "text": text,
-                }
-        except HTTPError as exc:
-            body = exc.read() if exc.fp else b""
-            charset = exc.headers.get_content_charset() if exc.headers else None
-            text = body.decode(charset or "utf-8", errors="replace") if body else ""
-            raise RuntimeError(f"{exc.code} {exc.reason}\n{text}".strip()) from exc
-        except URLError as exc:
-            raise RuntimeError(f"Unable to reach Eben API at {self.api_base_url}: {exc.reason}") from exc
+        return self.api.request(method, path, query=query, json_body=json_body, data=data)
 
     def _show_message(self, title, text, detailed_text=None, icon=QMessageBox.Information):
         box = QMessageBox(self)
@@ -613,7 +579,7 @@ class MainWindow(QMainWindow):
 
         self.devtools_view.show()
         self.devtools_view.raise_()
-        self.devtools_view.activateWindow() 
+        self.devtools_view.activateWindow()
 
     def refresh_page(self):
         self.view.setUrl(QUrl("about:blank"))
@@ -626,36 +592,6 @@ class MainWindow(QMainWindow):
             self.keyboard_grabbed = False
 
         super().closeEvent(event)
-
-
-def _api_request(self, method, path, query=None, json_body=None, data=None):
-    headers = {}
-    payload = data
-
-    if json_body is not None:
-        payload = json.dumps(json_body).encode("utf-8")
-        headers["Content-Type"] = "application/json"
-
-
-    host = os.environ.get("EBEN_API_BASE_URL", "http://10.42.1.1:8000").rstrip("/")
-    request = Request(f"{host}{path}", data=payload, headers=headers, method=method)
-
-    try:
-        with urlopen(request, timeout=30) as response:
-            body = response.read()
-            content_type = response.headers.get_content_type()
-            charset = response.headers.get_content_charset() or "utf-8"
-            text = body.decode(charset, errors="replace")
-            return text
-    except HTTPError as exc:
-        body = exc.read() if exc.fp else b""
-        charset = exc.headers.get_content_charset() if exc.headers else None
-        text = body.decode(charset or "utf-8", errors="replace") if body else ""
-        raise RuntimeError(f"{exc.code} {exc.reason}\n{text}".strip()) from exc
-    except URLError as exc:
-        raise RuntimeError(f"Unable to reach Eben API: {exc.reason}") from exc
-
-
 def main():
     if not os.path.isdir(WEB_ROOT):
         raise FileNotFoundError(f"Missing web root: {WEB_ROOT}")
@@ -677,12 +613,12 @@ def main():
 
     window = MainWindow(port, app, force_no_global_menu=args.force_no_global_menu)
     try:
-        model = _api_request(None, "GET", "/device/model")
-        hostname = _api_request(None, "GET", "/device/hostname")
-    except:
+        model = window.api.request("GET", "/device/model")
+        hostname = window.api.request("GET", "/device/hostname")
+    except Exception:
         model = "N/A"
         hostname = "N/A"
-    title = f"{hostname} ({model})"
+    title = f"{hostname['text'].strip()} ({model['text'].strip()})" if isinstance(model, dict) and isinstance(hostname, dict) else f"{hostname} ({model})"
     window.setWindowTitle(title)
     window.resize(1000, 700)
     window.show()
