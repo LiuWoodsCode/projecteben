@@ -1,11 +1,13 @@
 import argparse
 import json
+import os
+import subprocess
 import sys
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from typing import Any
 from urllib.error import HTTPError, URLError
-from urllib.request import urlopen
+from urllib.request import Request, urlopen
 
 from PySide6.QtCore import QObject, QRunnable, Qt, QSize, QThreadPool, Signal
 from PySide6.QtGui import QAction, QColor, QPalette
@@ -17,7 +19,9 @@ from PySide6.QtWidgets import (
     QListWidget,
     QListWidgetItem,
     QMainWindow,
+    QMenu,
     QMenuBar,
+    QMessageBox,
     QPushButton,
     QScrollArea,
     QSizePolicy,
@@ -54,7 +58,7 @@ class DeviceSnapshot:
             return self.hostname
         if self.model != "Unknown":
             return self.model
-        return "Unavailable" if self.unavailable else self.host
+        return self.host if self.unavailable else self.host
 
     @property
     def subtitle(self) -> str:
@@ -106,6 +110,25 @@ class RemoteDeviceClient:
             charset = response.headers.get_content_charset() or "utf-8"
             text = raw.decode(charset, errors="replace").strip()
             return text, content_type
+
+    def request(self, method: str, path: str) -> tuple[int, str, str]:
+        request = Request(self._url(path), method=method)
+        try:
+            with urlopen(request, timeout=self.timeout) as response:
+                raw = response.read()
+                content_type = response.headers.get_content_type()
+                charset = response.headers.get_content_charset() or "utf-8"
+                text = raw.decode(charset, errors="replace").strip()
+                return response.status, text, content_type
+        except HTTPError as exc:
+            body = exc.read() if exc.fp else b""
+            charset = exc.headers.get_content_charset() if exc.headers else None
+            message = body.decode(charset or "utf-8", errors="replace").strip() if body else ""
+            if message:
+                raise RuntimeError(f"{exc.code} {exc.reason}: {message}") from exc
+            raise RuntimeError(f"{exc.code} {exc.reason}") from exc
+        except (URLError, TimeoutError, OSError) as exc:
+            raise RuntimeError(f"Unable to reach {self.host}: {exc}") from exc
 
     def _log_network_exception(self, path: str, exc: Exception):
         print(f"[network] {self.host}{path}: {exc!r}", file=sys.stderr)
@@ -348,6 +371,9 @@ class DevicePanel(QWidget):
 
 
 class DetailPanel(QWidget):
+    powerActionRequested = Signal(str)
+    viewerRequested = Signal()
+
     def __init__(self):
         super().__init__()
 
@@ -371,6 +397,29 @@ class DetailPanel(QWidget):
 
         header_layout.addLayout(header_stack)
         header_layout.addStretch()
+
+        self.power_button = QPushButton("Power")
+        self.power_button.setObjectName("toolbarButton")
+        self.power_button.setCursor(Qt.PointingHandCursor)
+        self.power_button.clicked.connect(self._show_power_menu)
+
+        self.viewer_button = QPushButton("Viewer")
+        self.viewer_button.setObjectName("toolbarButton")
+        self.viewer_button.setCursor(Qt.PointingHandCursor)
+        self.viewer_button.clicked.connect(self.viewerRequested.emit)
+
+        self.power_menu = QMenu(self)
+        for action_key, label in [
+            ("restart", "Restart"),
+            ("poweroff", "Power off"),
+            ("sleep", "Sleep"),
+            ("hibernate", "Hibernate"),
+        ]:
+            action = self.power_menu.addAction(label)
+            action.triggered.connect(lambda _checked=False, key=action_key: self.powerActionRequested.emit(key))
+
+        header_layout.addWidget(self.power_button)
+        header_layout.addWidget(self.viewer_button)
 
         self.content = QScrollArea()
         self.content.setObjectName("detailContent")
@@ -415,6 +464,15 @@ class DetailPanel(QWidget):
 
         root.addWidget(self.header)
         root.addWidget(self.content, 1)
+        self.set_toolbar_visible(False)
+
+    def _show_power_menu(self):
+        menu_anchor = self.power_button.mapToGlobal(self.power_button.rect().bottomLeft())
+        self.power_menu.popup(menu_anchor)
+
+    def set_toolbar_visible(self, visible: bool):
+        self.power_button.setVisible(visible)
+        self.viewer_button.setVisible(visible)
 
     def _build_info_row(self, title: str, multiline: bool = False) -> QWidget:
         row = QWidget()
@@ -443,6 +501,7 @@ class DetailPanel(QWidget):
 
     def show_unreachable(self, snapshot: DeviceSnapshot):
         self.title_label.setText(snapshot.title)
+        self.set_toolbar_visible(False)
         self._set_rows_visible(False)
         self.unreachable_label.show()
 
@@ -452,6 +511,7 @@ class DetailPanel(QWidget):
             return
 
         self.unreachable_label.hide()
+        self.set_toolbar_visible(True)
         self._set_rows_visible(True)
         self.title_label.setText(snapshot.title)
 
@@ -477,6 +537,13 @@ class DetailPanel(QWidget):
 
 
 class MainWindow(QMainWindow):
+    POWER_ACTIONS: dict[str, tuple[str, str, str]] = {
+        "restart": ("Restart", "This will reboot the system.", "/power/restart"),
+        "poweroff": ("Power off", "This will shut the system down.", "/power/poweroff"),
+        "sleep": ("Sleep", "This will suspend the system.", "/power/sleep"),
+        "hibernate": ("Hibernate", "This will hibernate the system.", "/power/hibernate"),
+    }
+
     def __init__(self):
         super().__init__()
 
@@ -523,6 +590,8 @@ class MainWindow(QMainWindow):
 
         self.device_panel.list_widget.currentRowChanged.connect(self.on_device_changed)
         self.device_panel.refreshRequested.connect(self.refresh_selected_device)
+        self.detail_panel.powerActionRequested.connect(self._on_power_action_requested)
+        self.detail_panel.viewerRequested.connect(self._launch_viewer_for_selected_device)
         self.refresh_all_devices()
         self.device_panel.list_widget.setCurrentRow(0)
 
@@ -541,9 +610,11 @@ class MainWindow(QMainWindow):
 
         cached = self.device_snapshots[row] if row < len(self.device_snapshots) else None
         if cached is not None:
+            self.detail_panel.set_toolbar_visible(not cached.unavailable)
             self.detail_panel.show_loading(cached.title, f"Loading live system information from {cached.host}...")
         else:
             host = self.device_clients[row].host
+            self.detail_panel.set_toolbar_visible(False)
             self.detail_panel.show_loading(host, f"Loading live system information from {host}...")
 
         self.refresh_device_details(row)
@@ -615,6 +686,8 @@ class MainWindow(QMainWindow):
 
         self.device_snapshots[row] = snapshot
         self.device_panel.update_device(row, snapshot)
+        if row == self.device_panel.list_widget.currentRow():
+            self.detail_panel.set_toolbar_visible(not snapshot.unavailable)
 
     def _handle_summary_failure(self, row: int, generation: int, error: str):
         if generation != self.summary_generation or row >= len(self.device_clients):
@@ -625,6 +698,8 @@ class MainWindow(QMainWindow):
             self.device_snapshots.extend([DeviceSnapshot(host=client.host) for client in self.device_clients[len(self.device_snapshots):row + 1]])
         self.device_snapshots[row] = snapshot
         self.device_panel.update_device(row, snapshot)
+        if row == self.device_panel.list_widget.currentRow():
+            self.detail_panel.set_toolbar_visible(False)
 
     def _handle_detail_result(self, row: int, generation: int, snapshot: DeviceSnapshot):
         if generation != self.detail_generation or row != self.device_panel.list_widget.currentRow():
@@ -642,6 +717,85 @@ class MainWindow(QMainWindow):
 
         snapshot = DeviceSnapshot(host=self.device_clients[row].host, error=error, unavailable=True)
         self.detail_panel.set_snapshot(snapshot)
+
+    def _current_selection(self) -> tuple[int, RemoteDeviceClient, DeviceSnapshot] | None:
+        row = self.device_panel.list_widget.currentRow()
+        if row < 0 or row >= len(self.device_clients):
+            return None
+
+        snapshot = self.device_snapshots[row] if row < len(self.device_snapshots) else DeviceSnapshot(host=self.device_clients[row].host, unavailable=True)
+        return row, self.device_clients[row], snapshot
+
+    def _show_info(self, title: str, text: str):
+        QMessageBox.information(self, title, text)
+
+    def _show_error(self, title: str, text: str):
+        QMessageBox.critical(self, title, text)
+
+    def _on_power_action_requested(self, action_key: str):
+        selection = self._current_selection()
+        if selection is None:
+            return
+
+        _row, client, snapshot = selection
+        if snapshot.unavailable:
+            self._show_error("Power", f"{snapshot.host} is offline.")
+            return
+
+        action = self.POWER_ACTIONS.get(action_key)
+        if action is None:
+            return
+
+        title, question_text, endpoint = action
+        reply = QMessageBox.question(
+            self,
+            title,
+            f"{question_text}\n\nTarget: {snapshot.host}",
+            QMessageBox.Yes | QMessageBox.No,
+        )
+        if reply != QMessageBox.Yes:
+            return
+
+        worker = Worker(
+            f"power:{client.host}:{action_key}",
+            lambda client=client, endpoint=endpoint: client.request("GET", endpoint),
+        )
+        self._start_worker(
+            worker,
+            lambda payload, title=title, host=snapshot.host: self._handle_power_success(title, host, payload),
+            lambda _description, error, title=title: self._show_error(title, error),
+        )
+
+    def _handle_power_success(self, title: str, host: str, payload: tuple[int, str, str]):
+        status_code, body_text, _content_type = payload
+        details = f"Status: {status_code}"
+        if body_text:
+            details = f"{details}\n\n{body_text}"
+        self._show_info(title, f"Command sent to {host}.\n\n{details}")
+        self.refresh_all_devices()
+
+    def _launch_viewer_for_selected_device(self):
+        selection = self._current_selection()
+        if selection is None:
+            return
+
+        _row, _client, snapshot = selection
+        if snapshot.unavailable:
+            self._show_error("Viewer", f"{snapshot.host} is offline.")
+            return
+
+        script_path = os.path.join(os.path.dirname(__file__), "main.py")
+        command = [sys.executable, script_path, "--host", snapshot.host]
+        if QApplication.testAttribute(Qt.ApplicationAttribute.AA_DontUseNativeMenuBar):
+            command.append("--force-no-global-menu")
+
+        try:
+            subprocess.Popen(command, cwd=os.path.dirname(script_path), start_new_session=True)
+        except OSError as exc:
+            self._show_error("Viewer", f"Failed to launch viewer: {exc}")
+            return
+
+        self._show_info("Viewer", f"Viewer launched for {snapshot.host}.")
 
 
 def apply_dark_palette(app: QApplication):
@@ -702,6 +856,12 @@ def apply_styles(app: QApplication):
             font-size: 18px;
             font-weight: 700;
             padding-bottom: 2px;
+        }
+
+        QPushButton#toolbarButton {
+            padding: 6px 10px;
+            font-size: 12px;
+            font-weight: 600;
         }
 
         QFrame#detailContent {

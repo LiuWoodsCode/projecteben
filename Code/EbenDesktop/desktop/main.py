@@ -72,13 +72,14 @@ def start_http_server():
 
 
 class MainWindow(QMainWindow):
-    def __init__(self, port: int, app: QApplication, force_no_global_menu: bool = False):
+    def __init__(self, port: int, app: QApplication, host: str, force_no_global_menu: bool = False):
         super().__init__()
 
         self.app = app
         self.port = port
+        self.host = host
         self.setWindowTitle("Project Eben")
-        self.api = EbenApi()
+        self.api = EbenApi(base_url=f"http://{host}:8000")
 
         self.page = MessageBoxPage(self)
         self.view = QWebEngineView(self)
@@ -86,7 +87,7 @@ class MainWindow(QMainWindow):
         self.view.setFocusPolicy(Qt.StrongFocus)
         self.view.installEventFilter(self)
         self.view.loadFinished.connect(self._sync_remote_focus)
-        self.view.setUrl(QUrl(f"http://127.0.0.1:{port}/vnc_lite.html?host=10.42.1.1&port=5900"))
+        self.view.setUrl(QUrl(f"http://127.0.0.1:{port}/vnc_lite.html?host={self.host}&port=5900"))
         QWebEngineSettings.setAttribute(self.view.settings(), QWebEngineSettings.WebAttribute.FullScreenSupportEnabled, True)
         QWebEngineSettings.setAttribute(self.view.settings(), QWebEngineSettings.WebAttribute.PdfViewerEnabled, False)
         QWebEngineSettings.setAttribute(self.view.settings(), QWebEngineSettings.WebAttribute.WebGLEnabled, True)
@@ -584,7 +585,7 @@ class MainWindow(QMainWindow):
     def refresh_page(self):
         self.view.setUrl(QUrl("about:blank"))
         sleep(1)
-        self.view.setUrl(QUrl(f"http://127.0.0.1:{self.port}/vnc_lite.html?host=10.42.1.1&port=5900"))
+        self.view.setUrl(QUrl(f"http://127.0.0.1:{self.port}/vnc_lite.html?host={self.host}&port=5900"))
 
     def closeEvent(self, event):
         if self.keyboard_grabbed:
@@ -598,6 +599,7 @@ def main():
 
     parser = argparse.ArgumentParser(add_help=False)
     parser.add_argument("--force-no-global-menu", action="store_true")
+    parser.add_argument("--host", default="10.42.1.1")
     args, qt_args = parser.parse_known_args()
 
     relaunch_under_x_if_needed()
@@ -611,7 +613,7 @@ def main():
     app.setApplicationDisplayName("Eben Desktop")
     app.setApplicationName("Eben Desktop")
 
-    window = MainWindow(port, app, force_no_global_menu=args.force_no_global_menu)
+    window = MainWindow(port, app, host=args.host, force_no_global_menu=args.force_no_global_menu)
     try:
         model = window.api.request("GET", "/device/model")
         hostname = window.api.request("GET", "/device/hostname")
