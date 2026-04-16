@@ -1,0 +1,14 @@
+[Unit]
+Description=Sync time of Ironmouse
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+WorkingDirectory=/home/dapixelprowler/adapter
+ExecStart=/home/dapixelprowler/adapter/systemd/timesync.sh
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

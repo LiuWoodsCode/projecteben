@@ -1,0 +1,614 @@
+openapi: 3.1.0
+info:
+  title: Project Ironmouse USB Adapter API
+  version: 1.0.0
+  summary: HTTP API for managing Wi-Fi and USB network sharing on the adapter device.
+  description: |
+    This API is implemented by the Flask service in `adapter-usb/app.py`.
+
+    Most network and connection payloads are derived from `nmcli` output. The
+    spec documents the stable fields the service relies on and leaves room for
+    additional pass-through properties returned by NetworkManager.
+servers:
+  - url: http://{host}:{port}
+    description: Default local adapter server
+    variables:
+      host:
+        default: 127.0.0.1
+      port:
+        default: "5000"
+tags:
+  - name: Service
+  - name: Connections
+  - name: Wi-Fi
+  - name: USB
+paths:
+  /:
+    get:
+      tags: [Service]
+      summary: Render the adapter landing page
+      operationId: getIndexPage
+      responses:
+        "200":
+          description: HTML landing page
+          content:
+            text/html:
+              schema:
+                type: string
+  /download/client:
+    get:
+      tags: [Service]
+      summary: Download the desktop client bundle
+      operationId: downloadClient
+      responses:
+        "200":
+          description: ZIP archive download
+          content:
+            application/zip:
+              schema:
+                type: string
+                format: binary
+  /api/health:
+    get:
+      tags: [Service]
+      summary: Check whether the adapter service is running
+      operationId: getHealth
+      responses:
+        "200":
+          description: Service health
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthResponse"
+  /api/status:
+    get:
+      tags: [Service]
+      summary: Get overall adapter, device, and connection status
+      operationId: getStatus
+      responses:
+        "200":
+          description: Current adapter status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StatusResponse"
+  /api/connections:
+    get:
+      tags: [Connections]
+      summary: List saved Wi-Fi connections
+      operationId: listConnections
+      responses:
+        "200":
+          description: Saved Wi-Fi connection profiles
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConnectionListResponse"
+    post:
+      tags: [Connections]
+      summary: Create a Wi-Fi connection profile
+      operationId: createConnection
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateConnectionRequest"
+      responses:
+        "201":
+          description: Connection profile created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConnectionResponse"
+        "400":
+          $ref: "#/components/responses/NmcliError"
+  /api/connections/{identifier}:
+    parameters:
+      - $ref: "#/components/parameters/Identifier"
+    get:
+      tags: [Connections]
+      summary: Get a saved connection by UUID or name
+      operationId: getConnection
+      responses:
+        "200":
+          description: Connection details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConnectionResponse"
+        "400":
+          $ref: "#/components/responses/NmcliError"
+    patch:
+      tags: [Connections]
+      summary: Update mutable fields on a saved connection
+      operationId: updateConnection
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateConnectionRequest"
+      responses:
+        "200":
+          description: Updated connection details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConnectionResponse"
+        "400":
+          $ref: "#/components/responses/NmcliError"
+    delete:
+      tags: [Connections]
+      summary: Delete a saved connection by UUID or name
+      operationId: deleteConnection
+      responses:
+        "200":
+          description: Connection deleted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OkResponse"
+        "400":
+          $ref: "#/components/responses/NmcliError"
+  /api/connections/{identifier}/up:
+    parameters:
+      - $ref: "#/components/parameters/Identifier"
+    post:
+      tags: [Connections]
+      summary: Activate a connection
+      operationId: activateConnection
+      responses:
+        "200":
+          description: Connection activated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConnectionResponse"
+        "400":
+          $ref: "#/components/responses/NmcliError"
+  /api/connections/{identifier}/down:
+    parameters:
+      - $ref: "#/components/parameters/Identifier"
+    post:
+      tags: [Connections]
+      summary: Deactivate a connection
+      operationId: deactivateConnection
+      responses:
+        "200":
+          description: Connection deactivated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConnectionResponse"
+        "400":
+          $ref: "#/components/responses/NmcliError"
+  /api/scan:
+    get:
+      tags: [Wi-Fi]
+      summary: Rescan and list nearby Wi-Fi networks
+      operationId: scanWifi
+      responses:
+        "200":
+          description: Available Wi-Fi networks
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WifiScanResponse"
+        "400":
+          $ref: "#/components/responses/NmcliError"
+  /api/wifi/radio:
+    get:
+      tags: [Wi-Fi]
+      summary: Get Wi-Fi radio state
+      operationId: getWifiRadio
+      responses:
+        "200":
+          description: Current Wi-Fi radio state
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WifiRadioResponse"
+    post:
+      tags: [Wi-Fi]
+      summary: Enable or disable the Wi-Fi radio
+      operationId: setWifiRadio
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SetWifiRadioRequest"
+      responses:
+        "200":
+          description: Updated Wi-Fi radio state
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WifiRadioResponse"
+        "400":
+          $ref: "#/components/responses/NmcliError"
+  /api/usb/share:
+    post:
+      tags: [USB]
+      summary: Ensure USB network sharing is configured
+      description: |
+        Creates or updates the adapter's USB ethernet profile so the USB
+        interface uses IPv4 shared mode and autoconnect is enabled.
+      operationId: ensureUsbShare
+      responses:
+        "200":
+          description: USB sharing connection details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConnectionResponse"
+        "400":
+          $ref: "#/components/responses/NmcliError"
+components:
+  parameters:
+    Identifier:
+      name: identifier
+      in: path
+      required: true
+      description: Saved connection UUID or connection name.
+      schema:
+        type: string
+  responses:
+    NmcliError:
+      description: Request rejected by adapter validation or `nmcli`
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          examples:
+            missingSsid:
+              value:
+                ok: false
+                error: SSID is required
+    NotFound:
+      description: Route does not exist
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          examples:
+            notFound:
+              value:
+                ok: false
+                error: Not found
+  schemas:
+    OkResponse:
+      type: object
+      required: [ok]
+      properties:
+        ok:
+          type: boolean
+          const: true
+    ErrorResponse:
+      type: object
+      required: [ok, error]
+      properties:
+        ok:
+          type: boolean
+          const: false
+        error:
+          type: string
+    HealthResponse:
+      type: object
+      required: [ok, service]
+      properties:
+        ok:
+          type: boolean
+          const: true
+        service:
+          type: string
+          example: pi-zero-wifi-adapter
+    RadioState:
+      type: object
+      required: [enabled]
+      properties:
+        enabled:
+          type: boolean
+    WifiRadioResponse:
+      type: object
+      required: [ok, wifi_radio]
+      properties:
+        ok:
+          type: boolean
+          const: true
+        wifi_radio:
+          $ref: "#/components/schemas/RadioState"
+    SetWifiRadioRequest:
+      type: object
+      required: [enabled]
+      properties:
+        enabled:
+          type: boolean
+    CreateConnectionRequest:
+      type: object
+      properties:
+        ssid:
+          type: string
+          description: SSID to connect to. Required in practice.
+        password:
+          type: string
+          nullable: true
+          description: WPA-PSK password. Omit for open networks.
+        hidden:
+          type: boolean
+          default: false
+        autoconnect:
+          type: boolean
+          default: true
+        name:
+          type: string
+          description: Optional saved connection profile name. Defaults to the SSID.
+        activate:
+          type: boolean
+          default: false
+          description: Whether to bring the connection up immediately after creating it.
+        priority:
+          type: integer
+          description: Optional NetworkManager autoconnect priority.
+        replace_existing:
+          type: boolean
+          default: false
+          description: Delete any existing profile with the same name or UUID before creating the new one.
+    UpdateConnectionRequest:
+      type: object
+      description: |
+        Only the fields below are honored. Supplying none of them returns `400`.
+      properties:
+        password:
+          type: string
+          nullable: true
+        hidden:
+          type: boolean
+        autoconnect:
+          type: boolean
+        priority:
+          type: integer
+          nullable: true
+        name:
+          type: string
+    NmcliRecord:
+      type: object
+      description: Generic normalized `nmcli` record. Keys are lowercased and punctuation becomes underscores.
+      additionalProperties:
+        oneOf:
+          - type: string
+          - type: number
+          - type: boolean
+          - type: array
+            items:
+              type: string
+          - type: "null"
+    ConnectionDetails:
+      allOf:
+        - $ref: "#/components/schemas/NmcliRecord"
+        - type: object
+          properties:
+            connection_id:
+              type: string
+            connection_uuid:
+              type: string
+              format: uuid
+            connection_type:
+              type: string
+            connection_autoconnect:
+              type: string
+              description: NetworkManager emits string values such as `yes` or `no`.
+            connection_autoconnect_priority:
+              type: string
+            ssid:
+              type: string
+            _802_11_wireless_hidden:
+              deprecated: true
+              description: Present only if a generator maps the raw field name differently than expected.
+            general_state:
+              type: string
+            general_devices:
+              oneOf:
+                - type: string
+                - type: array
+                  items:
+                    type: string
+            ipv4_method:
+              type: string
+            ipv6_method:
+              type: string
+    SavedConnection:
+      allOf:
+        - $ref: "#/components/schemas/NmcliRecord"
+        - type: object
+          properties:
+            name:
+              type: string
+            uuid:
+              type: string
+              format: uuid
+            type:
+              type: string
+            device:
+              type: string
+            autoconnect:
+              type: string
+            timestamp_real:
+              type: string
+            details:
+              $ref: "#/components/schemas/ConnectionDetails"
+    ConnectionResponse:
+      type: object
+      required: [ok, connection]
+      properties:
+        ok:
+          type: boolean
+          const: true
+        connection:
+          oneOf:
+            - $ref: "#/components/schemas/ConnectionDetails"
+            - $ref: "#/components/schemas/SavedConnection"
+    ConnectionListResponse:
+      type: object
+      required: [ok, connections]
+      properties:
+        ok:
+          type: boolean
+          const: true
+        connections:
+          type: array
+          items:
+            $ref: "#/components/schemas/SavedConnection"
+    WifiNetwork:
+      allOf:
+        - $ref: "#/components/schemas/NmcliRecord"
+        - type: object
+          properties:
+            in_use:
+              type: string
+            ssid:
+              type: string
+            bssid:
+              type: string
+            mode:
+              type: string
+            chan:
+              type: string
+            rate:
+              type: string
+            signal:
+              type: string
+            bars:
+              type: string
+            security:
+              oneOf:
+                - type: string
+                - type: array
+                  items:
+                    type: string
+    WifiScanResponse:
+      type: object
+      required: [ok, networks]
+      properties:
+        ok:
+          type: boolean
+          const: true
+        networks:
+          type: array
+          items:
+            $ref: "#/components/schemas/WifiNetwork"
+    GeneralStatus:
+      allOf:
+        - $ref: "#/components/schemas/NmcliRecord"
+        - type: object
+          properties:
+            state:
+              type: string
+            connectivity:
+              type: string
+            wifi_hw:
+              type: string
+            wifi:
+              type: string
+            wwan_hw:
+              type: string
+            wwan:
+              type: string
+    DeviceStatus:
+      allOf:
+        - $ref: "#/components/schemas/NmcliRecord"
+        - type: object
+          properties:
+            interface:
+              type: string
+            error:
+              type: string
+            general_device:
+              type: string
+            general_type:
+              type: string
+            general_state:
+              type: string
+            general_connection:
+              type: string
+            wired_properties_carrier:
+              type: string
+            ip4_address:
+              oneOf:
+                - type: string
+                - type: array
+                  items:
+                    type: string
+            ip4_gateway:
+              type: string
+            ip4_dns:
+              oneOf:
+                - type: string
+                - type: array
+                  items:
+                    type: string
+            ip6_address:
+              oneOf:
+                - type: string
+                - type: array
+                  items:
+                    type: string
+    ActiveConnection:
+      allOf:
+        - $ref: "#/components/schemas/NmcliRecord"
+        - type: object
+          properties:
+            name:
+              type: string
+            uuid:
+              type: string
+              format: uuid
+            type:
+              type: string
+            device:
+              type: string
+    AdapterStatus:
+      type: object
+      required:
+        - hostname
+        - platform
+        - rpi_model
+        - general
+        - wifi_radio
+        - devices
+        - active_connections
+        - saved_wifi_connections
+      properties:
+        hostname:
+          type: string
+        platform:
+          type: string
+        rpi_model:
+          type: string
+        general:
+          $ref: "#/components/schemas/GeneralStatus"
+        wifi_radio:
+          $ref: "#/components/schemas/RadioState"
+        devices:
+          type: object
+          additionalProperties:
+            $ref: "#/components/schemas/DeviceStatus"
+          description: Keys are interface names such as `wlan0` and `usb0`.
+        active_connections:
+          type: array
+          items:
+            $ref: "#/components/schemas/ActiveConnection"
+        saved_wifi_connections:
+          type: array
+          items:
+            $ref: "#/components/schemas/SavedConnection"
+    StatusResponse:
+      type: object
+      required: [ok, status]
+      properties:
+        ok:
+          type: boolean
+          const: true
+        status:
+          $ref: "#/components/schemas/AdapterStatus"

@@ -1,0 +1,15 @@
+[Unit]
+Description=Ironmouse Service
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/home/dapixelprowler/adapter
+ExecStart=/home/dapixelprowler/adapter/systemd/startup.sh
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
