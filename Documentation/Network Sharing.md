@@ -16,7 +16,7 @@ Project Eben allows the Pi to communicate with another system by connecting the 
 
 The Raspberry Pi is considered the "gateway" of it's own network, and always is assigned the IP address of 10.42.0.1. 
 
-You can use Ethernet sharing to allow the Raspberry Pi to connect to a Wi-Fi network you can't use for local communication (e.g a guest network) while still allowing local communication through the Ethernet. In many cases this will also let the other system to access the internet directly
+You can use Ethernet sharing to allow the Raspberry Pi to connect to a Wi-Fi network you can't use for local communication (e.g a guest network) while still allowing local communication through the Ethernet. In many cases this will also let the other system to access the internet 
 
 ## Troubleshooting
 

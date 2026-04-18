@@ -30,6 +30,12 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+import crash_handler
+
+crash_handler.install(
+    capture_globals=True,
+    capture_environment=False,
+)
 
 DEVICE_PORT = 8000
 DEVICE_HOSTS = ["10.42.0.1", "10.42.1.1"]
@@ -398,12 +404,12 @@ class DetailPanel(QWidget):
         header_layout.addLayout(header_stack)
         header_layout.addStretch()
 
-        self.power_button = QPushButton("Power")
+        self.power_button = QPushButton("Power Options")
         self.power_button.setObjectName("toolbarButton")
         self.power_button.setCursor(Qt.PointingHandCursor)
         self.power_button.clicked.connect(self._show_power_menu)
 
-        self.viewer_button = QPushButton("Viewer")
+        self.viewer_button = QPushButton("Launch Eben Viewer")
         self.viewer_button.setObjectName("toolbarButton")
         self.viewer_button.setCursor(Qt.PointingHandCursor)
         self.viewer_button.clicked.connect(self.viewerRequested.emit)

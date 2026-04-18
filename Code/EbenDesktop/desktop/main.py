@@ -16,6 +16,12 @@ from PySide6.QtWebEngineWidgets import QWebEngineView
 
 from eben_api import EbenApi
 
+import crash_handler
+
+crash_handler.install(
+    capture_globals=True,
+    capture_environment=False,
+)
 
 WEB_ROOT = os.path.abspath(".")
 
@@ -43,7 +49,7 @@ def relaunch_under_x_if_needed():
 
 class MessageBoxPage(QWebEnginePage):
     def javaScriptAlert(self, securityOrigin, message):
-        QMessageBox.critical(None, "EbenVnc", message)
+        QMessageBox.critical(None, "EbenDesktop", message)
 
 
 class QuietHandler(SimpleHTTPRequestHandler):
@@ -585,7 +591,7 @@ class MainWindow(QMainWindow):
 
     def refresh_page(self):
         self.view.setUrl(QUrl("about:blank"))
-        sleep(1)
+        sleep(0.25)
         self.view.setUrl(QUrl(f"http://127.0.0.1:{self.port}/vnc_lite.html?host={self.host}&port=5900"))
 
     def closeEvent(self, event):
@@ -611,8 +617,7 @@ def main():
     server, port = start_http_server()
 
     app = QApplication([sys.argv[0], *qt_args])
-    app.setApplicationDisplayName("Eben Desktop")
-    app.setApplicationName("Eben Desktop")
+    app.setApplicationName("Eben Desktop viewer application")
 
     window = MainWindow(port, app, host=args.host, force_no_global_menu=args.force_no_global_menu)
     try:

@@ -1,6 +1,9 @@
 # Battery 
 The battery currently used in Project Eben is a no-name USB power bank. In the future this should be replaced with a battery controller that allows the system to see battery information.
 
+> [!WARNING]
+> DO NOT UNPLUG THE POWER SOURCE FROM THE SYSTEM UNLESS IT IS SHUT DOWN.
+
 ## Current cell
 The battery currently used in Project Eben is a no-name USB power bank, and currently does not give any details to the OS.
 

@@ -7,3 +7,6 @@ config.json
 apps/*/__pycache__/
 drivers/__pycache__/
 .codex
+crash_logs/*
+err*
+panic*
