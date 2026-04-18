@@ -83,6 +83,12 @@ class DetailsPane(Static):
         self.update(content)
 
 
+class SettingsListView(ListView):
+    """List view that stays out of focus so app bindings remain visible."""
+
+    can_focus = False
+
+
 class ModernBiosApp(App):
     CSS = """
     Screen {
@@ -216,7 +222,7 @@ class ModernBiosApp(App):
             with Horizontal(id="body"):
                 with Vertical(id="left-panel"):
                     yield Static("System Configuration", id="section-title")
-                    yield ListView(id="setting-list")
+                    yield SettingsListView(id="setting-list")
                     yield Static(
                         "Arrow keys to navigate. Enter to simulate selecting an item.",
                         id="hint",
