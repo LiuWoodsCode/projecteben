@@ -573,3 +573,15 @@ class Api:
                 "ok": False,
                 "error": e
             }
+
+    def screenshot(self) -> dict:
+        """Take a screenshot using the `grim` command and return the image data."""
+        result = self._run(["grim", "-"])
+        if not result.ok:
+            raise RuntimeError(f"Failed to take screenshot: {result.stderr}")
+
+        return {
+            "data": result.stdout.encode("latin1"),  # binary data as bytes
+            "content_type": "image/png",
+            "size_bytes": len(result.stdout),
+        }
