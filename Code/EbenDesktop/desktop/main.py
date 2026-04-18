@@ -8,7 +8,7 @@ from functools import partial
 from time import sleep
 from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler
 
-from PySide6.QtCore import QEvent, QUrl, Qt
+from PySide6.QtCore import QObject, QEvent, QRunnable, QThreadPool, QUrl, Qt, Signal
 from PySide6.QtGui import QAction
 from PySide6.QtWidgets import QApplication, QFileDialog, QInputDialog, QMainWindow, QMessageBox
 from PySide6.QtWebEngineCore import QWebEnginePage, QWebEngineSettings
@@ -50,6 +50,27 @@ def relaunch_under_x_if_needed():
 class MessageBoxPage(QWebEnginePage):
     def javaScriptAlert(self, securityOrigin, message):
         QMessageBox.critical(None, "EbenDesktop", message)
+
+
+class WorkerSignals(QObject):
+    finished = Signal(object)
+    failed = Signal(str, str)
+
+
+class Worker(QRunnable):
+    def __init__(self, description: str, job):
+        super().__init__()
+        self.description = description
+        self.job = job
+        self.signals = WorkerSignals()
+        self.setAutoDelete(False)
+
+    def run(self):
+        try:
+            result = self.job()
+            self.signals.finished.emit(result)
+        except Exception as exc:
+            self.signals.failed.emit(self.description, repr(exc))
 
 
 class QuietHandler(SimpleHTTPRequestHandler):
@@ -159,6 +180,14 @@ class MainWindow(QMainWindow):
         self.devtools_view = None
         self.keyboard_grabbed = False
 
+        self.keyboard_pool = QThreadPool(self)
+        self.keyboard_pool.setMaxThreadCount(1)
+        self.options_pool = QThreadPool(self)
+        self.options_pool.setMaxThreadCount(2)
+        self.file_pool = QThreadPool(self)
+        self.file_pool.setMaxThreadCount(2)
+        self.active_workers = set()
+
     def _about_qt(self):
         self.app.aboutQt()
 
@@ -169,6 +198,43 @@ class MainWindow(QMainWindow):
 
     def _api_request(self, method, path, query=None, json_body=None, data=None):
         return self.api.request(method, path, query=query, json_body=json_body, data=data)
+
+    def _start_worker(self, pool, worker: Worker, finished_cb, failed_cb):
+        self.active_workers.add(worker)
+
+        def _on_finished(payload):
+            try:
+                finished_cb(payload)
+            finally:
+                self.active_workers.discard(worker)
+
+        def _on_failed(description: str, error: str):
+            try:
+                failed_cb(description, error)
+            finally:
+                self.active_workers.discard(worker)
+
+        worker.signals.finished.connect(_on_finished)
+        worker.signals.failed.connect(_on_failed)
+        pool.start(worker)
+
+    def _run_option_worker(self, description: str, title: str, job, success_cb):
+        worker = Worker(description, job)
+        self._start_worker(
+            self.options_pool,
+            worker,
+            success_cb,
+            lambda _description, error: self._show_api_error(title, error),
+        )
+
+    def _run_file_worker(self, description: str, title: str, job, success_cb):
+        worker = Worker(description, job)
+        self._start_worker(
+            self.file_pool,
+            worker,
+            success_cb,
+            lambda _description, error: self._show_api_error(title, error),
+        )
 
     def _show_message(self, title, text, detailed_text=None, icon=QMessageBox.Information):
         box = QMessageBox(self)
@@ -194,44 +260,44 @@ class MainWindow(QMainWindow):
         self._show_message(title, "Request succeeded.", f"{summary}\n\n{body}" if body else summary)
 
     def _api_get_text(self, path, title, checked=False):
-        try:
-            response = self._api_request("GET", path)
-        except RuntimeError as error:
-            self._show_api_error(title, error)
-            return
-
-        self._show_message(title, response["text"].strip() or "No response body.", f"Status: {response['status']}")
+        self._run_option_worker(
+            f"api:get:text:{path}",
+            title,
+            lambda: self._api_request("GET", path),
+            lambda response, title=title: self._show_message(
+                title,
+                response["text"].strip() or "No response body.",
+                f"Status: {response['status']}",
+            ),
+        )
 
     def _api_get_json(self, path, title, checked=False):
-        try:
-            response = self._api_request("GET", path)
-        except RuntimeError as error:
-            self._show_api_error(title, error)
-            return
-
-        self._show_api_result(title, response)
+        self._run_option_worker(
+            f"api:get:json:{path}",
+            title,
+            lambda: self._api_request("GET", path),
+            lambda response, title=title: self._show_api_result(title, response),
+        )
 
     def _api_post_json(self, path, title, checked=False):
-        try:
-            response = self._api_request("POST", path)
-        except RuntimeError as error:
-            self._show_api_error(title, error)
-            return
-
-        self._show_api_result(title, response)
+        self._run_option_worker(
+            f"api:post:json:{path}",
+            title,
+            lambda: self._api_request("POST", path),
+            lambda response, title=title: self._show_api_result(title, response),
+        )
 
     def _confirm_and_post(self, dialog_title, dialog_text, path, title, checked=False):
         reply = QMessageBox.question(self, dialog_title, dialog_text, QMessageBox.Yes | QMessageBox.No)
         if reply != QMessageBox.Yes:
             return
 
-        try:
-            response = self._api_request("GET", path)
-        except RuntimeError as error:
-            self._show_api_error(title, error)
-            return
-
-        self._show_api_result(title, response)
+        self._run_option_worker(
+            f"api:confirm-post:{path}",
+            title,
+            lambda: self._api_request("GET", path),
+            lambda response, title=title: self._show_api_result(title, response),
+        )
 
     def _set_system_time(self, checked=False):
         default_value = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -244,24 +310,22 @@ class MainWindow(QMainWindow):
         if not accepted or not value.strip():
             return
 
-        try:
-            response = self._api_request("POST", "/settings/time", json_body={"datetime": value.strip()})
-        except RuntimeError as error:
-            self._show_api_error("Set System Time", error)
-            return
-
-        self._show_api_result("Set System Time", response)
+        self._run_option_worker(
+            "api:set-system-time",
+            "Set System Time",
+            lambda value=value.strip(): self._api_request("POST", "/settings/time", json_body={"datetime": value}),
+            lambda response: self._show_api_result("Set System Time", response),
+        )
 
     def _sync_pi_clock_to_system_time(self, checked=False):
         current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-        try:
-            response = self._api_request("POST", "/settings/time", json_body={"datetime": current_time})
-        except RuntimeError as error:
-            self._show_api_error("Sync Pi Clock", error)
-            return
-
-        self._show_api_result("Sync Pi Clock", response)
+        self._run_option_worker(
+            "api:sync-pi-clock",
+            "Sync Pi Clock",
+            lambda current_time=current_time: self._api_request("POST", "/settings/time", json_body={"datetime": current_time}),
+            lambda response: self._show_api_result("Sync Pi Clock", response),
+        )
 
     def _upload_file_via_dialog(self, checked=False):
         local_path, _ = QFileDialog.getOpenFileName(self, "Select File to Upload")
@@ -277,21 +341,25 @@ class MainWindow(QMainWindow):
         if not accepted or not target_path.strip():
             return
 
-        with open(local_path, "rb") as source_file:
-            payload = source_file.read()
+        target = target_path.strip()
 
-        try:
-            response = self._api_request(
+        def _upload_job():
+            with open(local_path, "rb") as source_file:
+                payload = source_file.read()
+
+            return self._api_request(
                 "POST",
                 "/files/upload",
-                query={"path": target_path.strip()},
+                query={"path": target},
                 data=payload,
             )
-        except RuntimeError as error:
-            self._show_api_error("Upload File", error)
-            return
 
-        self._show_api_result("Upload File", response)
+        self._run_file_worker(
+            "files:upload",
+            "Upload File",
+            _upload_job,
+            lambda response: self._show_api_result("Upload File", response),
+        )
 
     def _download_file_via_dialog(self, checked=False):
         source_path, accepted = QInputDialog.getText(
@@ -306,19 +374,29 @@ class MainWindow(QMainWindow):
         if not local_path:
             return
 
-        try:
-            response = self._api_request("GET", "/files/download", query={"path": source_path.strip()})
-        except RuntimeError as error:
-            self._show_api_error("Download File", error)
-            return
+        source = source_path.strip()
 
-        with open(local_path, "wb") as destination_file:
-            destination_file.write(response["body"])
+        def _download_job():
+            response = self._api_request("GET", "/files/download", query={"path": source})
+            with open(local_path, "wb") as destination_file:
+                destination_file.write(response["body"])
 
-        self._show_message(
+            return {
+                "status": response["status"],
+                "content_type": response["content_type"],
+                "local_path": local_path,
+                "bytes_written": len(response["body"]),
+            }
+
+        self._run_file_worker(
+            "files:download",
             "Download File",
-            f"Saved to {local_path}",
-            f"Status: {response['status']}\nContent-Type: {response['content_type']}\nBytes written: {len(response['body'])}",
+            _download_job,
+            lambda result: self._show_message(
+                "Download File",
+                f"Saved to {result['local_path']}",
+                f"Status: {result['status']}\nContent-Type: {result['content_type']}\nBytes written: {result['bytes_written']}",
+            ),
         )
 
 
@@ -514,7 +592,30 @@ class MainWindow(QMainWindow):
             "shiftKey": bool(event.modifiers() & Qt.ShiftModifier),
             "metaKey": bool(event.modifiers() & Qt.MetaModifier),
         }
-        print(f"Forwarding keyevent:\n{payload}\n")
+
+        worker = Worker(
+            "keyboard:forward",
+            lambda payload=payload: payload,
+        )
+        self._start_worker(
+            self.keyboard_pool,
+            worker,
+            self._forward_keyboard_payload,
+            lambda _description, _error: None,
+        )
+
+    def _forward_keyboard_payload(self, payload):
+        payload = {
+            "type": payload["type"],
+            "code": payload["code"],
+            "key": payload["key"],
+            "location": payload["location"],
+            "repeat": payload["repeat"],
+            "ctrlKey": payload["ctrlKey"],
+            "altKey": payload["altKey"],
+            "shiftKey": payload["shiftKey"],
+            "metaKey": payload["metaKey"],
+        }
         self._run_page_hook(f"window.EbenVnc && window.EbenVnc.forwardKeyboardEvent && window.EbenVnc.forwardKeyboardEvent({json.dumps(payload)});")
 
     def toggle_fullscreen(self, checked=None):
