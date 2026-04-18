@@ -213,6 +213,15 @@ def download_file(req):
 
     return BinaryResponse(result["data"], content_type=result["content_type"])
 
+@app.get("/vnc/preview")
+def screenshot(req):
+    try:
+        result = backend.screenshot()
+    except Exception as exc:
+        return {"ok": False, "error": str(exc)}, 403
+
+    return BinaryResponse(result["data"], content_type=result["content_type"])
+
 @app.get("/test")
 def test(req):
     return TextResponse("Hello", 200, {"hello": "content"})
