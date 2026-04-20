@@ -1,0 +1,311 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+
+    <!--
+    noVNC example: lightweight example using minimal UI and features
+
+    This is a self-contained file which doesn't import WebUtil or external CSS.
+
+    Copyright (C) 2019 The noVNC authors
+    noVNC is licensed under the MPL 2.0 (see LICENSE.txt)
+    This file is licensed under the 2-Clause BSD license (see LICENSE.txt).
+
+    Connect parameters are provided in query string:
+        http://example.com/?host=HOST&port=PORT&resize=remote
+    -->
+    <title>noVNC</title>
+
+    <style>
+
+        body {
+            margin: 0;
+            background-color: dimgrey;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+        }
+        html {
+            height: 100%;
+        }
+
+        #status {
+            position: fixed;
+            top: 12px;
+            left: 12px;
+            z-index: 2;
+            color: #f4f7fb;
+            background: rgba(10, 14, 22, 0.68);
+            border: 1px solid rgba(255, 255, 255, 0.14);
+            border-radius: 999px;
+            padding: 7px 12px;
+            font: 600 12px/1.2 Helvetica, Arial, sans-serif;
+            letter-spacing: 0.01em;
+            pointer-events: none;
+        }
+
+        #status.hidden {
+            display: none;
+        }
+
+        #screen {
+            flex: 1; /* fill remaining space */
+            overflow: hidden;
+        }
+
+    </style>
+
+    <script type="module" crossorigin="anonymous">
+        // RFB holds the API to connect and communicate with a VNC server
+        import RFB from './core/rfb.js';
+
+        let rfb;
+        let desktopName;
+        let statusTimer = null;
+        let errorDialogRaised = false;
+
+        // When this function is called we have
+        // successfully connected to a server
+        function connectedToServer(e) {
+            errorDialogRaised = false;
+            status("Connected to " + desktopName);
+        }
+
+        // This function is called when we are disconnected
+        function disconnectedFromServer(e) {
+            if (e.detail.clean) {
+                status("Disconnected");
+            } else {
+                const message = "Something went wrong, connection is closed";
+                status(message);
+
+                if (!errorDialogRaised) {
+                    showErrorDialog(message);
+                }
+            }
+
+            errorDialogRaised = false;
+        }
+
+        // When this function is called, the server requires
+        // credentials to authenticate
+        function credentialsAreRequired(e) {
+            const password = prompt("Password required:");
+            rfb.sendCredentials({ password: password });
+        }
+
+        // When this function is called we have received
+        // a desktop name from the server
+        function updateDesktopName(e) {
+            desktopName = e.detail.name;
+        }
+
+        function securityFailed(e) {
+            let message = "Security negotiation failed";
+
+            if (e.detail && e.detail.reason) {
+                message = message + ": " + e.detail.reason;
+            }
+
+            status(message);
+            showErrorDialog(message);
+        }
+
+        function sendCtrlAltDel() {
+            rfb.sendCtrlAltDel();
+        }
+
+        function showErrorDialog(message) {
+            errorDialogRaised = true;
+            window.setTimeout(() => {
+                window.alert(message);
+            }, 0);
+        }
+
+        function focusRemoteInput() {
+            if (!rfb || document.visibilityState === 'hidden') {
+                return;
+            }
+
+            rfb.focus({ preventScroll: true });
+        }
+
+        function releaseRemoteInput() {
+            if (!rfb) {
+                return;
+            }
+
+            rfb.blur();
+        }
+
+        function forwardKeyboardEvent(eventData) {
+            const canvas = document.querySelector('#screen canvas');
+
+            if (!canvas) {
+                return;
+            }
+
+            const keyboardEvent = new KeyboardEvent(eventData.type, {
+                key: eventData.key,
+                code: eventData.code,
+                location: eventData.location || 0,
+                repeat: !!eventData.repeat,
+                ctrlKey: !!eventData.ctrlKey,
+                altKey: !!eventData.altKey,
+                shiftKey: !!eventData.shiftKey,
+                metaKey: !!eventData.metaKey,
+                bubbles: true,
+                cancelable: true,
+            });
+
+            canvas.dispatchEvent(keyboardEvent);
+        }
+
+        function handleRemoteShortcut(e) {
+            if (!(e.ctrlKey && e.altKey && e.code === 'Insert')) {
+                return;
+            }
+
+            e.preventDefault();
+            e.stopPropagation();
+            sendCtrlAltDel();
+        }
+
+        // Show a status text in the top bar
+        function status(text) {
+            const statusElement = document.getElementById('status');
+            statusElement.classList.remove('hidden');
+            statusElement.textContent = text;
+
+            if (statusTimer !== null) {
+                window.clearTimeout(statusTimer);
+                statusTimer = null;
+            }
+
+            if (text) {
+                statusTimer = window.setTimeout(() => {
+                    statusElement.textContent = "";
+                    statusElement.classList.add('hidden');
+                    statusTimer = null;
+                }, 7000);
+            }
+        }
+
+        // This function extracts the value of one variable from the
+        // query string. If the variable isn't defined in the URL
+        // it returns the default value instead.
+        function readQueryVariable(name, defaultValue) {
+            // A URL with a query parameter can look like this:
+            // https://www.example.com?myqueryparam=myvalue
+            //
+            // Note that we use location.href instead of location.search
+            // because Firefox < 53 has a bug w.r.t location.search
+            const re = new RegExp('.*[?&]' + name + '=([^&#]*)'),
+                  match = document.location.href.match(re);
+
+            if (match) {
+                // We have to decode the URL since want the cleartext value
+                return decodeURIComponent(match[1]);
+            }
+
+            return defaultValue;
+        }
+
+        function setClipboard(text) {
+            rfb.clipboardPasteFrom(text)
+        }
+
+        async function writeClipboard(text) {
+            if (!navigator.clipboard || !navigator.clipboard.writeText) {
+                return false;
+            }
+
+            try {
+                await navigator.clipboard.writeText(text);
+                return true;
+            } catch (error) {
+                console.error("Clipboard write failed:", error);
+                return false;
+            }
+        }
+
+        function clipboardReceived(e) {
+            writeClipboard(e.detail.text);
+        }
+
+        document.addEventListener('keydown', handleRemoteShortcut, true);
+        window.addEventListener('blur', releaseRemoteInput);
+        window.addEventListener('focus', focusRemoteInput);
+        document.addEventListener('visibilitychange', () => {
+            if (document.visibilityState === 'visible') {
+                focusRemoteInput();
+            } else {
+                releaseRemoteInput();
+            }
+        });
+
+        // Read parameters specified in the URL query string
+        // By default, use the host and port of server that served this file
+        const host = readQueryVariable('host', window.location.hostname);
+        let port = readQueryVariable('port', window.location.port);
+        const password = readQueryVariable('password');
+        const resize = readQueryVariable('resize', readQueryVariable('scale', 'false') === 'true' ? 'scale' : 'remote');
+        const path = readQueryVariable('path', 'websockify');
+
+        // | | |         | | |
+        // | | | Connect | | |
+        // v v v         v v v
+
+        status("Connecting");
+
+        // Build the websocket URL used to connect
+        let url;
+        if (window.location.protocol === "https:") {
+            url = 'wss';
+        } else {
+            url = 'ws';
+        }
+        url += '://' + host;
+        if(port) {
+            url += ':' + port;
+        }
+        url += '/' + path;
+
+        // Creating a new RFB object will start a new connection
+        rfb = new RFB(document.getElementById('screen'), url,
+                      { credentials: { password: password } });
+
+        // Add listeners to important events from the RFB module
+        rfb.addEventListener("connect",  connectedToServer);
+        rfb.addEventListener("disconnect", disconnectedFromServer);
+        // rfb.addEventListener("credentialsrequired", credentialsAreRequired);
+        rfb.addEventListener("desktopname", updateDesktopName);
+        // rfb.addEventListener("securityfailure", securityFailed);
+        rfb.addEventListener("clipboard", clipboardReceived);
+        rfb.focusOnClick = true;
+
+        // Set parameters that can be changed on an active connection
+        rfb.viewOnly = readQueryVariable('view_only', false);
+        rfb.qualityLevel = 9;
+        rfb.compressionLevel = 0;
+        rfb.scaleViewport = resize === 'scale';
+        rfb.resizeSession = resize === 'remote';
+
+        window.EbenVnc = {
+            requestFocus: focusRemoteInput,
+            releaseFocus: releaseRemoteInput,
+            forwardKeyboardEvent: forwardKeyboardEvent,
+            setClipboard: setClipboard,      
+        };
+
+        focusRemoteInput();
+    </script>
+</head>
+
+<body>
+    <div id="status">Loading</div>
+    <div id="screen">
+        <!-- This is where the remote screen will appear -->
+    </div>
+</body>
+</html>
