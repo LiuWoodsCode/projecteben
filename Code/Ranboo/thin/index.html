@@ -26,8 +26,8 @@
 			height: 100%;
 			overflow: hidden;
 			font-family: var(--font-ui);
-			background: var(--body-bg);
-			color: var(--text-primary);
+			background: var(--neutral-layer-2);
+			color: var(--neutral-foreground-rest);
 			user-select: none;
 		}
 
@@ -55,7 +55,9 @@
 		}
 
 		.wash {
-			background: var(--wash-a), var(--wash-b);
+			background:
+				linear-gradient(150deg, color-mix(in srgb, var(--accent-fill-rest) 14%, transparent), transparent 42%),
+				linear-gradient(180deg, color-mix(in srgb, var(--neutral-layer-floating) 72%, transparent), color-mix(in srgb, var(--neutral-layer-1) 78%, transparent));
 			backdrop-filter: blur(8px);
 		}
 
@@ -79,10 +81,10 @@
 		.signin-card {
 			width: min(92vw, 380px);
 			min-height: min(80vh, 600px);
-			background: var(--surface);
+			background: var(--neutral-layer-card-container);
 			border-radius: var(--radius);
-			box-shadow: var(--shadow);
-			border: 1px solid var(--surface-border);
+			box-shadow: var(--elevation-shadow-card-rest);
+			border: 1px solid var(--neutral-stroke-layer-rest);
 			backdrop-filter: blur(10px);
 			padding: clamp(28px, 4vw, 42px);
 			display: flex;
@@ -109,7 +111,7 @@
 
 		.subtitle {
 			margin: 0;
-			color: var(--text-secondary);
+			color: var(--neutral-foreground-hint);
 			font-size: 1.08rem;
 		}
 
@@ -149,8 +151,8 @@
 		.status {
 			font-size: clamp(1.3rem, 2.2vw, 1.8rem);
 			font-weight: 450;
-			color: var(--status-color);
-			text-shadow: var(--status-shadow);
+			color: var(--accent-foreground-rest);
+			text-shadow: 0 0 20px color-mix(in srgb, var(--accent-fill-rest) 36%, transparent);
 			max-width: 80vw;
 		}
 
@@ -168,9 +170,9 @@
 			width: min(88vw, 620px);
 			border-radius: 16px;
 			overflow: hidden;
-			box-shadow: var(--shadow);
-			background: var(--error-panel-bg);
-			border: 1px solid var(--error-panel-border);
+			box-shadow: var(--elevation-shadow-dialog);
+			background: var(--neutral-layer-floating);
+			border: 1px solid var(--neutral-stroke-layer-rest);
 			transform-origin: center;
 			animation: panel-in 320ms cubic-bezier(0.2, 0.8, 0.2, 1);
 		}
@@ -188,7 +190,7 @@
 
 		.body-copy {
 			margin: 0 0 18px;
-			color: var(--text-secondary);
+			color: var(--neutral-foreground-hint);
 			line-height: 1.45;
 			font-size: 1.08rem;
 		}
@@ -196,7 +198,7 @@
 		.meta {
 			margin: 12px 0 0;
 			font-size: 0.95rem;
-			color: var(--meta-color);
+			color: var(--neutral-foreground-hover);
 			line-height: 1.45;
 		}
 
@@ -209,8 +211,8 @@
 			grid-template-columns: 1fr 1fr;
 			gap: 8px;
 			padding: 10px 14px 14px;
-			background: var(--error-actions-bg);
-			border-top: 1px solid var(--error-actions-border);
+			background: var(--neutral-fill-layer-rest);
+			border-top: 1px solid var(--neutral-stroke-divider-rest);
 		}
 
 		.action {
