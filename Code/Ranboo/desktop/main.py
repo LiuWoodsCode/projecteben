@@ -708,6 +708,7 @@ def main():
     parser = argparse.ArgumentParser(add_help=False)
     parser.add_argument("--force-no-global-menu", action="store_true")
     parser.add_argument("--host", default="10.42.1.1")
+    parser.add_argument("--fullscreen", action="store_true")
     args, qt_args = parser.parse_known_args()
 
     relaunch_under_x_if_needed()
@@ -730,6 +731,8 @@ def main():
     title = f"{hostname['text'].strip()} ({model['text'].strip()})" if isinstance(model, dict) and isinstance(hostname, dict) else f"{hostname} ({model})"
     window.setWindowTitle(title)
     window.resize(1000, 700)
+    if args.fullscreen:
+        window.showFullScreen()
     window.show()
 
     exit_code = app.exec()
