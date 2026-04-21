@@ -15,19 +15,17 @@
 		<section class="view" id="view-signin">
 			<article class="signin-card" role="group" aria-label="Sign in">
 				<img class="mark" src="./assets/logo.png" alt="Cloud PC logo">
-				<h1>Sign in</h1>
-				<p class="subtitle">With your work account</p>
+				<h1>Connect</h1>
+				<p class="subtitle">Select connection method</p>
 				<form class="email-row" id="sign-in-form">
-						<fluent-text-field
-						class="email-input"
-							appearance="outline"
-						id="email"
-						name="email"
-						autocomplete="username"
-							inputmode="email"
-						placeholder="Email"
-						required
-						></fluent-text-field>
+                        <fluent-select id="method" appearance="outline">
+                        <!-- Ethernet: connect with ip 10.42.1.1 -->
+                        <fluent-option value="eth">Ethernet</fluent-option>
+                        <!-- USB: connect with ip 10.12.194.1 -->
+                        <fluent-option value="usb">USB gadget</fluent-option>
+                        <!-- WiFi: connect with ip 10.42.0.1 -->
+                        <fluent-option value="wlo">Wifi ap</fluent-option>
+                        </fluent-select>
 						<fluent-button class="go" id="go" appearance="accent" type="submit" aria-label="Continue">&rarr;</fluent-button>
 				</form>
 			</article>
