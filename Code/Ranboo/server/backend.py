@@ -585,3 +585,52 @@ class Api:
             "content_type": "image/png",
             "size_bytes": len(result.stdout),
         }
+
+    def get_specialty_device_type(self):
+        """Get the specialty type of the device the Ranboo server is running on."""
+        # Valid device types as of right now are as follows:
+        # "Unknown.Generic": anything that does not fall into other form factors 
+        # "Eben.Generic": Generic devices that we know are used for Project Eben
+        # "Deletescape.Generic": Generic devices running deletescapeOS
+        # "Eben.Stockwood": Project Stockwood devices
+        # "Eben.Ironmouse": Project Ironmouse devices
+        # "Lumon": Project Lumon devices
+        # "Deletescape.Phone": phones running deletescapeOS
+        # "Deletescape.Tablet": tablets running deletescapeOS
+        # "Deletescape.Desk": desktops and laptops running deletescapeOS
+
+        ## TODO: Get actual type
+        return "Eben.Stockwood"
+    
+    def battery_status(self) -> dict:
+        """Get battery status information using psutil."""
+        try:
+            battery = psutil.sensors_battery()
+            if battery is None:
+                return {"has_battery": False}
+
+            return {
+                "has_battery": True,
+                "percent": battery.percent,
+                "secsleft": battery.secsleft,
+                "power_plugged": battery.power_plugged,
+            }
+        except Exception as e:
+            return {
+                "has_battery": False,
+                "error": str(e),
+            }
+    
+    def get_disp_brightness(self):
+        "Get the display brightness"
+        # In practice, we would need to somehow get/set the display's brightness
+        # Most likely through some sort of microcontroller
+        # So we stub this for now
+        return "255"
+
+    def set_disp_brightness(self):
+        "Set the display brightness"
+        # In practice, we would need to somehow get/set the display's brightness
+        # Most likely through some sort of microcontroller
+        # So we stub this for now
+        return True
