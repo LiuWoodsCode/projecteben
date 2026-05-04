@@ -12,7 +12,7 @@
     This file is licensed under the 2-Clause BSD license (see LICENSE.txt).
 
     Connect parameters are provided in query string:
-        http://example.com/?host=HOST&port=PORT&resize=remote
+        http://example.com/?host=HOST&port=PORT&scale=true
     -->
     <title>noVNC</title>
 
@@ -29,23 +29,23 @@
             height: 100%;
         }
 
-        #status {
-            position: fixed;
-            top: 12px;
-            left: 12px;
-            z-index: 2;
-            color: #f4f7fb;
-            background: rgba(10, 14, 22, 0.68);
-            border: 1px solid rgba(255, 255, 255, 0.14);
-            border-radius: 999px;
-            padding: 7px 12px;
-            font: 600 12px/1.2 Helvetica, Arial, sans-serif;
-            letter-spacing: 0.01em;
-            pointer-events: none;
+        #top_bar {
+            background-color: #6e84a3;
+            color: white;
+            font: bold 12px Helvetica;
+            padding: 6px 5px 4px 5px;
+            border-bottom: 1px outset;
         }
-
-        #status.hidden {
-            display: none;
+        #status {
+            text-align: center;
+        }
+        #sendCtrlAltDelButton {
+            position: fixed;
+            top: 0px;
+            right: 0px;
+            border: 1px outset;
+            padding: 5px 5px 4px 5px;
+            cursor: pointer;
         }
 
         #screen {
@@ -61,13 +61,10 @@
 
         let rfb;
         let desktopName;
-        let statusTimer = null;
-        let errorDialogRaised = false;
 
         // When this function is called we have
         // successfully connected to a server
         function connectedToServer(e) {
-            errorDialogRaised = false;
             status("Connected to " + desktopName);
         }
 
@@ -76,15 +73,8 @@
             if (e.detail.clean) {
                 status("Disconnected");
             } else {
-                const message = "Something went wrong, connection is closed";
-                status(message);
-
-                if (!errorDialogRaised) {
-                    showErrorDialog(message);
-                }
+                status("Something went wrong, connection is closed");
             }
-
-            errorDialogRaised = false;
         }
 
         // When this function is called, the server requires
@@ -100,95 +90,17 @@
             desktopName = e.detail.name;
         }
 
-        function securityFailed(e) {
-            let message = "Security negotiation failed";
-
-            if (e.detail && e.detail.reason) {
-                message = message + ": " + e.detail.reason;
-            }
-
-            status(message);
-            showErrorDialog(message);
-        }
-
+        // Since most operating systems will catch Ctrl+Alt+Del
+        // before they get a chance to be intercepted by the browser,
+        // we provide a way to emulate this key sequence.
         function sendCtrlAltDel() {
             rfb.sendCtrlAltDel();
-        }
-
-        function showErrorDialog(message) {
-            errorDialogRaised = true;
-            window.setTimeout(() => {
-                window.alert(message);
-            }, 0);
-        }
-
-        function focusRemoteInput() {
-            if (!rfb || document.visibilityState === 'hidden') {
-                return;
-            }
-
-            rfb.focus({ preventScroll: true });
-        }
-
-        function releaseRemoteInput() {
-            if (!rfb) {
-                return;
-            }
-
-            rfb.blur();
-        }
-
-        function forwardKeyboardEvent(eventData) {
-            const canvas = document.querySelector('#screen canvas');
-
-            if (!canvas) {
-                return;
-            }
-
-            const keyboardEvent = new KeyboardEvent(eventData.type, {
-                key: eventData.key,
-                code: eventData.code,
-                location: eventData.location || 0,
-                repeat: !!eventData.repeat,
-                ctrlKey: !!eventData.ctrlKey,
-                altKey: !!eventData.altKey,
-                shiftKey: !!eventData.shiftKey,
-                metaKey: !!eventData.metaKey,
-                bubbles: true,
-                cancelable: true,
-            });
-
-            canvas.dispatchEvent(keyboardEvent);
-        }
-
-        function handleRemoteShortcut(e) {
-            if (!(e.ctrlKey && e.altKey && e.code === 'Insert')) {
-                return;
-            }
-
-            e.preventDefault();
-            e.stopPropagation();
-            sendCtrlAltDel();
+            return false;
         }
 
         // Show a status text in the top bar
         function status(text) {
-            const statusElement = document.getElementById('status');
-            statusElement.classList.remove('hidden');
-            statusElement.textContent = text;
-
-            if (statusTimer !== null) {
-                window.clearTimeout(statusTimer);
-                statusTimer = null;
-            }
-
-            if (text) {
-                statusTimer = window.setTimeout(() => {
-                    statusElement.textContent = "";
-                    statusElement.classList.add('hidden');
-                    statusTimer = null;
-                }, 7000);
-            }
+            document.getElementById('status').textContent = text;
         }
 
         // This function extracts the value of one variable from the
@@ -211,38 +123,8 @@
             return defaultValue;
         }
 
-        function setClipboard(text) {
-            rfb.clipboardPasteFrom(text)
-        }
-
-        async function writeClipboard(text) {
-            if (!navigator.clipboard || !navigator.clipboard.writeText) {
-                return false;
-            }
-
-            try {
-                await navigator.clipboard.writeText(text);
-                return true;
-            } catch (error) {
-                console.error("Clipboard write failed:", error);
-                return false;
-            }
-        }
-
-        function clipboardReceived(e) {
-            writeClipboard(e.detail.text);
-        }
-
-        document.addEventListener('keydown', handleRemoteShortcut, true);
-        window.addEventListener('blur', releaseRemoteInput);
-        window.addEventListener('focus', focusRemoteInput);
-        document.addEventListener('visibilitychange', () => {
-            if (document.visibilityState === 'visible') {
-                focusRemoteInput();
-            } else {
-                releaseRemoteInput();
-            }
-        });
+        document.getElementById('sendCtrlAltDelButton')
+            .onclick = sendCtrlAltDel;
 
         // Read parameters specified in the URL query string
         // By default, use the host and port of server that served this file
@@ -278,32 +160,24 @@
         // Add listeners to important events from the RFB module
         rfb.addEventListener("connect",  connectedToServer);
         rfb.addEventListener("disconnect", disconnectedFromServer);
-        // rfb.addEventListener("credentialsrequired", credentialsAreRequired);
+        rfb.addEventListener("credentialsrequired", credentialsAreRequired);
         rfb.addEventListener("desktopname", updateDesktopName);
-        // rfb.addEventListener("securityfailure", securityFailed);
-        rfb.addEventListener("clipboard", clipboardReceived);
-        rfb.focusOnClick = true;
 
-        // Set parameters that can be changed on an active connection
-        rfb.viewOnly = readQueryVariable('view_only', false);
         rfb.qualityLevel = 9;
         rfb.compressionLevel = 0;
         rfb.scaleViewport = resize === 'scale';
         rfb.resizeSession = resize === 'remote';
 
-        window.EbenVnc = {
-            requestFocus: focusRemoteInput,
-            releaseFocus: releaseRemoteInput,
-            forwardKeyboardEvent: forwardKeyboardEvent,
-            setClipboard: setClipboard,      
-        };
-
-        focusRemoteInput();
+        // Set parameters that can be changed on an active connection
+        rfb.viewOnly = readQueryVariable('view_only', false);
     </script>
 </head>
 
 <body>
-    <div id="status">Loading</div>
+    <div id="top_bar">
+        <div id="status">Loading</div>
+        <div id="sendCtrlAltDelButton">Send CtrlAltDel</div>
+    </div>
     <div id="screen">
         <!-- This is where the remote screen will appear -->
     </div>

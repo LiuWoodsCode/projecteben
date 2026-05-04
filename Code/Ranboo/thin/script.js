@@ -14,39 +14,14 @@ colorModeQuery.addEventListener("change", applyColorMode);
 applyColorMode();
 
 (() => {
-	const views = {
-		signin: document.getElementById("view-signin"),
-		connecting: document.getElementById("view-connecting"),
-		error: document.getElementById("view-error")
-	};
-
 	const form = document.getElementById("sign-in-form");
-	const retry = document.getElementById("retry");
-	const signOut = document.getElementById("sign-out");
-	const cancel = document.getElementById("cancel-connect");
-	const timestamp = document.getElementById("timestamp");
-	const correlation = document.getElementById("correlation");
 	const clock = document.getElementById("clock");
+	const method = document.getElementById("method");
 
-	let connectTimer;
-
-	const show = (key) => {
-		Object.entries(views).forEach(([name, node]) => {
-			node.classList.toggle("hidden", name !== key);
-		});
-	};
-
-	const randomHex = (size) => {
-		const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
-		let out = "";
-		for (let i = 0; i < size; i += 1) {
-			out += chars[Math.floor(Math.random() * chars.length)];
-		}
-		return out;
-	};
-
-	const makeCorrelation = () => {
-		return [8, 4, 4, 4, 12].map(randomHex).join("-");
+	const hostsByMethod = {
+		eth: "10.42.1.1",
+		usb: "10.12.194.1",
+		wlo: "10.42.0.1"
 	};
 
 	const updateClock = () => {
@@ -54,34 +29,19 @@ applyColorMode();
 		clock.textContent = now.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
 	};
 
-	const toError = () => {
-		timestamp.textContent = new Date().toISOString();
-		correlation.textContent = makeCorrelation();
-		show("error");
-	};
-
-	const startConnectFlow = () => {
-		clearTimeout(connectTimer);
-		show("connecting");
-		connectTimer = setTimeout(toError, 2300);
+	const connectToVnc = () => {
+		const host = hostsByMethod[method.value] || hostsByMethod.eth;
+		const url = new URL("/vnc_lite.html", window.location.origin);
+		url.searchParams.set("host", host);
+		url.searchParams.set("port", "5900");
+		window.location.assign(url.toString());
 	};
 
 	form.addEventListener("submit", (event) => {
 		event.preventDefault();
-		startConnectFlow();
-	});
-
-	retry.addEventListener("click", startConnectFlow);
-	cancel.addEventListener("click", () => {
-		clearTimeout(connectTimer);
-		show("signin");
-	});
-	signOut.addEventListener("click", () => {
-		clearTimeout(connectTimer);
-		show("signin");
+		connectToVnc();
 	});
 
 	updateClock();
 	setInterval(updateClock, 15000);
-	show("signin");
 })();
