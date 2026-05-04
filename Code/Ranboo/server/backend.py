@@ -24,7 +24,6 @@ import shutil
 import signal
 import subprocess
 import webbrowser
-from tkinter import Tk, filedialog
 from pathlib import Path
 import psutil
 import stat as stat_module
@@ -367,7 +366,7 @@ class Api:
         return "unknown"
     
     def revision(self) -> str:
-        if self.dry_run != "posix":
+        if self.dry_run:
             return "stub"
         try:
             with open("/proc/cpuinfo", "r") as f:
