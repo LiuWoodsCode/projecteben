@@ -28,6 +28,7 @@ from pathlib import Path
 import psutil
 import stat as stat_module
 from datetime import datetime
+import shlex
 
 @dataclass(frozen=True)
 class CommandResult:
@@ -134,7 +135,7 @@ class Api:
         Returns:
             A CommandResult object.
         """
-        command_tuple = tuple(command)
+        command_tuple = ("sh", "-c", shlex.join(command))
 
         if self.dry_run:
             print(f"Would run {command}")
@@ -149,6 +150,7 @@ class Api:
             command_tuple,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
+            shell=False,
             text=True,
             check=False,
         )
