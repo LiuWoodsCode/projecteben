@@ -10,7 +10,7 @@ from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 from PySide6.QtCore import QObject, QRunnable, Qt, QSize, QThreadPool, Signal
-from PySide6.QtGui import QAction, QColor, QPalette
+from PySide6.QtGui import QAction, QColor, QIcon, QPalette
 from PySide6.QtWidgets import (
     QApplication,
     QFrame,
@@ -26,6 +26,8 @@ from PySide6.QtWidgets import (
     QScrollArea,
     QSizePolicy,
     QSplitter,
+    QStyle,
+    QSystemTrayIcon,
     QVBoxLayout,
     QWidget,
 )
@@ -598,6 +600,9 @@ class MainWindow(QMainWindow):
         self.device_panel.refreshRequested.connect(self.refresh_selected_device)
         self.detail_panel.powerActionRequested.connect(self._on_power_action_requested)
         self.detail_panel.viewerRequested.connect(self._launch_viewer_for_selected_device)
+        self._quit_requested = False
+        self._tray_menu_dirty = True
+        self._setup_tray_icon()
         self.refresh_all_devices()
         self.device_panel.list_widget.setCurrentRow(0)
 
@@ -607,8 +612,111 @@ class MainWindow(QMainWindow):
 
         file_menu = menu_bar.addMenu("File")
         quit_action = QAction("Quit", self)
-        quit_action.triggered.connect(self.close)
+        quit_action.triggered.connect(self.request_quit)
         file_menu.addAction(quit_action)
+
+    def _setup_tray_icon(self):
+        self.tray_icon = QSystemTrayIcon(self)
+        self.tray_icon.setIcon(QIcon.fromTheme("computer", self.style().standardIcon(QStyle.StandardPixmap.SP_ComputerIcon)))
+        self.tray_icon.setToolTip("Eben Desktop")
+        self.tray_icon.activated.connect(self._on_tray_activated)
+
+        self.tray_menu = QMenu(self)
+        self.tray_menu.aboutToShow.connect(self._refresh_tray_menu)
+        self._refresh_tray_menu()
+        self.tray_icon.show()
+
+    def _refresh_tray_menu(self):
+        if not getattr(self, "_tray_menu_dirty", True):
+            return
+
+        self._tray_menu_dirty = False
+
+        new_menu = QMenu(self)
+
+        show_action = QAction("Show window", self)
+        show_action.triggered.connect(self.show_from_tray)
+        new_menu.addAction(show_action)
+
+        refresh_action = QAction("Refresh devices", self)
+        refresh_action.triggered.connect(self.refresh_all_devices)
+        new_menu.addAction(refresh_action)
+
+        new_menu.addSeparator()
+
+        devices_menu = new_menu.addMenu("Devices")
+        for row, client in enumerate(self.device_clients):
+            snapshot = self.device_snapshots[row] if row < len(self.device_snapshots) else DeviceSnapshot(host=client.host, error="Loading...")
+            device_menu = QMenu(self._tray_device_label(snapshot), self)
+            devices_menu.addMenu(device_menu)
+
+            status_action = QAction(self._tray_device_status(snapshot), self)
+            status_action.setEnabled(False)
+            device_menu.addAction(status_action)
+
+            device_menu.addSeparator()
+
+            viewer_action = QAction("Launch viewer", self)
+            viewer_action.triggered.connect(lambda _checked=False, host=snapshot.host: self._launch_viewer_for_host(host))
+            device_menu.addAction(viewer_action)
+
+            power_menu = device_menu.addMenu("Power")
+            for action_key, label in [
+                ("restart", "Restart"),
+                ("poweroff", "Power off"),
+                ("sleep", "Sleep"),
+                ("hibernate", "Hibernate"),
+            ]:
+                action = QAction(label, self)
+                action.triggered.connect(
+                    lambda _checked=False, host=snapshot.host, key=action_key: self._request_power_action_for_host(host, key)
+                )
+                power_menu.addAction(action)
+
+            if snapshot.unavailable:
+                viewer_action.setEnabled(False)
+                power_menu.setEnabled(False)
+
+        new_menu.addSeparator()
+
+        quit_action = QAction("Quit", self)
+        quit_action.triggered.connect(self.request_quit)
+        new_menu.addAction(quit_action)
+
+        old_menu = self.tray_icon.contextMenu()
+        self.tray_icon.setContextMenu(new_menu)
+        self.tray_menu = new_menu
+        if old_menu is not None and old_menu is not new_menu:
+            old_menu.deleteLater()
+
+    def _tray_device_label(self, snapshot: DeviceSnapshot) -> str:
+        if snapshot.title == snapshot.host:
+            return snapshot.host
+        return f"{snapshot.title} ({snapshot.host})"
+
+    def _tray_device_status(self, snapshot: DeviceSnapshot) -> str:
+        if snapshot.error:
+            return snapshot.error
+        if snapshot.unavailable:
+            return "Unavailable"
+        return snapshot.subtitle
+
+    def _on_tray_activated(self, reason):
+        if reason in (
+            QSystemTrayIcon.ActivationReason.Trigger,
+            QSystemTrayIcon.ActivationReason.DoubleClick,
+        ):
+            self.show_from_tray()
+
+    def show_from_tray(self):
+        self.show()
+        self.showNormal()
+        self.raise_()
+        self.activateWindow()
+
+    def request_quit(self):
+        self._quit_requested = True
+        self.close()
 
     def on_device_changed(self, row: int):
         if row < 0 or row >= len(self.device_clients):
@@ -694,6 +802,7 @@ class MainWindow(QMainWindow):
         self.device_panel.update_device(row, snapshot)
         if row == self.device_panel.list_widget.currentRow():
             self.detail_panel.set_toolbar_visible(not snapshot.unavailable)
+        self._tray_menu_dirty = True
 
     def _handle_summary_failure(self, row: int, generation: int, error: str):
         if generation != self.summary_generation or row >= len(self.device_clients):
@@ -706,6 +815,7 @@ class MainWindow(QMainWindow):
         self.device_panel.update_device(row, snapshot)
         if row == self.device_panel.list_widget.currentRow():
             self.detail_panel.set_toolbar_visible(False)
+        self._tray_menu_dirty = True
 
     def _handle_detail_result(self, row: int, generation: int, snapshot: DeviceSnapshot):
         if generation != self.detail_generation or row != self.device_panel.list_widget.currentRow():
@@ -716,6 +826,7 @@ class MainWindow(QMainWindow):
         if row < len(self.device_snapshots):
             self.device_snapshots[row] = snapshot
             self.device_panel.update_device(row, snapshot)
+        self._tray_menu_dirty = True
 
     def _handle_detail_failure(self, row: int, generation: int, error: str):
         if generation != self.detail_generation or row != self.device_panel.list_widget.currentRow():
@@ -723,6 +834,7 @@ class MainWindow(QMainWindow):
 
         snapshot = DeviceSnapshot(host=self.device_clients[row].host, error=error, unavailable=True)
         self.detail_panel.set_snapshot(snapshot)
+        self._tray_menu_dirty = True
 
     def _current_selection(self) -> tuple[int, RemoteDeviceClient, DeviceSnapshot] | None:
         row = self.device_panel.list_widget.currentRow()
@@ -738,13 +850,28 @@ class MainWindow(QMainWindow):
     def _show_error(self, title: str, text: str):
         QMessageBox.critical(self, title, text)
 
-    def _on_power_action_requested(self, action_key: str):
-        selection = self._current_selection()
-        if selection is None:
+    def _snapshot_for_host(self, host: str) -> DeviceSnapshot | None:
+        for snapshot in self.device_snapshots:
+            if snapshot.host == host:
+                return snapshot
+        return None
+
+    def _launch_viewer_for_host(self, host: str):
+        script_path = os.path.join(os.path.dirname(__file__), "main.py")
+        command = [sys.executable, script_path, "--host", host]
+        command.append("--force-no-global-menu")
+
+        try:
+            subprocess.Popen(command, cwd=os.path.dirname(script_path), start_new_session=True)
+        except OSError as exc:
+            self._show_error("Viewer", f"Failed to launch viewer: {exc}")
             return
 
-        _row, client, snapshot = selection
-        if snapshot.unavailable:
+        self._show_info("Viewer", f"Viewer launched for {host}.")
+
+    def _request_power_action_for_host(self, host: str, action_key: str):
+        snapshot = self._snapshot_for_host(host)
+        if snapshot is not None and snapshot.unavailable:
             self._show_error("Power", f"{snapshot.host} is offline.")
             return
 
@@ -756,21 +883,34 @@ class MainWindow(QMainWindow):
         reply = QMessageBox.question(
             self,
             title,
-            f"{question_text}\n\nTarget: {snapshot.host}",
+            f"{question_text}\n\nTarget: {host}",
             QMessageBox.Yes | QMessageBox.No,
         )
         if reply != QMessageBox.Yes:
             return
 
+        client = next((client for client in self.device_clients if client.host == host), RemoteDeviceClient(host))
         worker = Worker(
-            f"power:{client.host}:{action_key}",
+            f"power:{host}:{action_key}",
             lambda client=client, endpoint=endpoint: client.request("GET", endpoint),
         )
         self._start_worker(
             worker,
-            lambda payload, title=title, host=snapshot.host: self._handle_power_success(title, host, payload),
+            lambda payload, title=title, host=host: self._handle_power_success(title, host, payload),
             lambda _description, error, title=title: self._show_error(title, error),
         )
+
+    def _on_power_action_requested(self, action_key: str):
+        selection = self._current_selection()
+        if selection is None:
+            return
+
+        _row, _client, snapshot = selection
+        if snapshot.unavailable:
+            self._show_error("Power", f"{snapshot.host} is offline.")
+            return
+
+        self._request_power_action_for_host(snapshot.host, action_key)
 
     def _handle_power_success(self, title: str, host: str, payload: tuple[int, str, str]):
         status_code, body_text, _content_type = payload
@@ -790,17 +930,25 @@ class MainWindow(QMainWindow):
             self._show_error("Viewer", f"{snapshot.host} is offline.")
             return
 
-        script_path = os.path.join(os.path.dirname(__file__), "main.py")
-        command = [sys.executable, script_path, "--host", snapshot.host]
-        command.append("--force-no-global-menu")
+        self._launch_viewer_for_host(snapshot.host)
 
-        try:
-            subprocess.Popen(command, cwd=os.path.dirname(script_path), start_new_session=True)
-        except OSError as exc:
-            self._show_error("Viewer", f"Failed to launch viewer: {exc}")
+    def closeEvent(self, event):
+        if self._quit_requested:
+            event.accept()
             return
 
-        self._show_info("Viewer", f"Viewer launched for {snapshot.host}.")
+        if hasattr(self, "tray_icon") and self.tray_icon.isVisible():
+            event.ignore()
+            self.hide()
+            self.tray_icon.showMessage(
+                "Eben Desktop",
+                "The app is still running in the tray.",
+                QSystemTrayIcon.MessageIcon.Information,
+                1500,
+            )
+            return
+
+        event.accept()
 
 
 def apply_dark_palette(app: QApplication):
@@ -883,6 +1031,7 @@ def main():
 
     app = QApplication([sys.argv[0], *qt_args])
     app.setApplicationName("Eben Desktop")
+    app.setQuitOnLastWindowClosed(False)
 
     apply_dark_palette(app)
     apply_styles(app)
