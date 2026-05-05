@@ -135,7 +135,7 @@ class Api:
         Returns:
             A CommandResult object.
         """
-        command_tuple = ("sh", "-c", shlex.join(command))
+        command_tuple = ("bash", "-c", str(command))
 
         if self.dry_run:
             print(f"Would run {command}")
@@ -299,7 +299,7 @@ class Api:
     def reboot(self) -> CommandResult:
         """Reboot the system immediately."""
         return self._run(["sudo", "reboot"])
-    
+
     def softreboot(self) -> CommandResult:
         """Softly reboot the system immediately."""
         return self._run([
@@ -310,23 +310,23 @@ class Api:
             "--job-mode=replace-irreversibly",
             "--no-block",
         ])
-    
+
     def poweroff(self) -> CommandResult:
         """Power off the system immediately."""
         return self._run(["sudo", "shutdown", "-h", "now"])
-    
+
     def sleep(self) -> CommandResult:
         """Put the system to sleep immediately."""
         return self._run(["sudo", "systemctl", "sleep"])
-    
+
     def suspend(self) -> CommandResult:
         """Suspend the system immediately."""
         return self._run(["sudo", "systemctl", "suspend"])
-    
+
     def hibernate(self) -> CommandResult:
         """Hibernate the system immediately."""
         return self._run(["sudo", "systemctl", "hibernate"])
-    
+
     def model(self) -> str:
         if self.dry_run:
             return "stub-model"
@@ -335,7 +335,7 @@ class Api:
                 return f.read().strip("\x00")
         except:
             return "unknown"
-        
+
     def cmdline(self) -> str:
         if self.dry_run:
             return "not a linux kernel"
@@ -344,7 +344,7 @@ class Api:
                 return f.read().strip("\x00")
         except:
             return "unknown"
-        
+
     def linux_ver(self) -> str:
         if self.dry_run:
             return "not a linux kernel"
@@ -353,7 +353,7 @@ class Api:
                 return f.read().strip("\x00")
         except:
             return "unknown"
-        
+
     def serial(self) -> str:
         if self.dry_run:
             return "STUBSRLXXXXX"
@@ -366,7 +366,7 @@ class Api:
             return "unknown"
 
         return "unknown"
-    
+
     def revision(self) -> str:
         if self.dry_run:
             return "stub"
@@ -395,7 +395,7 @@ class Api:
             except Exception:
                 continue
         return disks
-    
+
     def start_wayvnc(self) -> Optional[int]:
         """Start wayvnc normally (no websocket)."""
         if self._wayvnc_proc and self._wayvnc_proc.poll() is None:
@@ -407,7 +407,7 @@ class Api:
         ])
 
         return self._wayvnc_proc.pid
-    
+
     def start_wayvnc_websocket(self) -> Optional[int]:
         """Start wayvnc with websocket support (-w)."""
         if self._wayvnc_proc and self._wayvnc_proc.poll() is None:
@@ -420,7 +420,7 @@ class Api:
         ])
 
         return self._wayvnc_proc.pid
-    
+
     def start_wayvnc_with_novnc(self) -> dict:
         """Start wayvnc and noVNC proxy."""
         result = {}
@@ -443,7 +443,7 @@ class Api:
 
         result["novnc_pid"] = self._novnc_proc.pid
         return result
-    
+
     def stop_wayvnc(self) -> bool:
         """Stop the running wayvnc process."""
         if not self._wayvnc_proc:
@@ -458,7 +458,7 @@ class Api:
 
         self._wayvnc_proc = None
         return True
-    
+
     def stop_novnc(self) -> bool:
         """Stop the running noVNC proxy."""
         if not self._novnc_proc:
@@ -503,12 +503,7 @@ class Api:
             CommandResult from timedatectl.
         """
         # Set the system time
-        return self._run([
-            "sudo",
-            "timedatectl",
-            "set-time",
-            datetime_str
-        ])
+        return self._run(f"sudo timedatectl set-time {datetime_str}")
 
     def upload_file(self, target_path: str, data: bytes) -> dict:
         """Write a file under the home directory.
@@ -557,7 +552,7 @@ class Api:
             "content_type": self._content_type_for_path(source),
             "size_bytes": size,
         }
-    
+
     def open_website(self, url: str):
         try:
             wb = webbrowser.open(url)
@@ -590,7 +585,7 @@ class Api:
     def get_specialty_device_type(self):
         """Get the specialty type of the device the Ranboo server is running on."""
         # Valid device types as of right now are as follows:
-        # "Unknown.Generic": anything that does not fall into other form factors 
+        # "Unknown.Generic": anything that does not fall into other form factors
         # "Eben.Generic": Generic devices that we know are used for Project Eben
         # "Deletescape.Generic": Generic devices running deletescapeOS
         # "Eben.Stockwood": Project Stockwood devices
@@ -602,7 +597,7 @@ class Api:
 
         ## TODO: Get actual type
         return "Eben.Stockwood"
-    
+
     def battery_status(self) -> dict:
         """Get battery status information using psutil."""
         try:
@@ -621,7 +616,7 @@ class Api:
                 "has_battery": False,
                 "error": str(e),
             }
-    
+
     def get_disp_brightness(self):
         "Get the display brightness"
         # In practice, we would need to somehow get/set the display's brightness
