@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional, Sequence
+from typing import List, Optional, Sequence, Union
 import mimetypes
 import os
 import platform
@@ -123,42 +123,111 @@ class Api:
         mime, _ = mimetypes.guess_type(str(path))
         return mime or "application/octet-stream"
 
-    def _run(self, command: Sequence[str]) -> CommandResult:
-        """Run a command and return a structured result.
 
-        In dry-run mode, this does not execute anything and returns a successful
-        stub result with empty output.
-
-        Args:
-            command: Command and arguments to execute.
-
-        Returns:
-            A CommandResult object.
+    def _split_on_semicolon(self, command: List[str]) -> List[List[str]]:
         """
-        command_tuple = ("bash", "-c", str(command))
+        Split a command list on literal ';' tokens, like Bash.
+        """
+        groups = []
+        current = []
 
-        if self.dry_run:
-            print(f"Would run {command}")
-            return CommandResult(
-                command=command_tuple,
-                returncode=0,
-                stdout="",
-                stderr="",
+        for token in command:
+            if token == ";":
+                if current:
+                    groups.append(current)
+                    current = []
+            else:
+                current.append(token)
+
+        if current:
+            groups.append(current)
+
+        return groups
+
+    def simple_tokenize(self, command: Union[str, List[str]]) -> List[str]:
+        """
+        Very simple shell-like tokenizer.
+        - Splits on whitespace
+        - Preserves quoted strings
+        - Treats ';' as its own token
+        """
+        if isinstance(command, list):
+            return list(command)
+
+        tokens = []
+        current = []
+        quote = None  # None, "'" or '"'
+
+        for ch in command:
+            if quote:
+                if ch == quote:
+                    quote = None
+                else:
+                    current.append(ch)
+                continue
+
+            if ch in ("'", '"'):
+                quote = ch
+                continue
+
+            if ch == ";":
+                if current:
+                    tokens.append("".join(current))
+                    current = []
+                tokens.append(";")
+                continue
+
+            if ch.isspace():
+                if current:
+                    tokens.append("".join(current))
+                    current = []
+                continue
+
+            current.append(ch)
+
+        if current:
+            tokens.append("".join(current))
+
+        return tokens
+
+    def _run(self, command, dry_run=False) -> CommandResult:
+        tokens = self.simple_tokenize(command)
+        command_tuple = tuple(tokens)
+        groups = self._split_on_semicolon(tokens)
+
+        if dry_run:
+            print(f"Would run (bash ;): {groups}")
+            return CommandResult(command_tuple, 0, "", "")
+
+        print(f"running command with bash ';' semantics: {groups}")
+
+        final_returncode = 0
+        stdout_parts = []
+        stderr_parts = []
+
+        for group in groups:
+            print(f"running command: {tuple(group)}")
+
+            completed = subprocess.run(
+                tuple(group),
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                check=False,
             )
-        print(f"running command {command}")
-        completed = subprocess.run(
-            command_tuple,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            shell=False,
-            text=True,
-            check=False,
-        )
+
+            final_returncode = completed.returncode
+
+            if completed.stdout:
+                stdout_parts.append(completed.stdout.rstrip())
+            if completed.stderr:
+                stderr_parts.append(completed.stderr.rstrip())
+
         return CommandResult(
             command=command_tuple,
-            returncode=completed.returncode,
-            stdout=completed.stdout.strip(),
-            stderr=completed.stderr.strip(),
+            returncode=final_returncode,
+            stdout="\n".join(stdout_parts),
+            stderr="\n".join(stderr_parts),
         )
 
     @staticmethod
@@ -503,7 +572,9 @@ class Api:
             CommandResult from timedatectl.
         """
         # Set the system time
-        return self._run(f"sudo timedatectl set-time {datetime_str}")
+        return self._run(
+            f"sudo timedatectl set-time \'{datetime_str}\'"
+        )
 
     def upload_file(self, target_path: str, data: bytes) -> dict:
         """Write a file under the home directory.
