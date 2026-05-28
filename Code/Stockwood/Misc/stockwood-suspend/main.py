@@ -39,11 +39,14 @@ BLOCKED_PROCESS_NAMES = {
     "sudo",
     "su",
     "python3",  # your own process
+    "sway",
+    "swaybg",
 }
 
 BLOCKED_PROCESS_PREFIXES = (
     "python",
     "ssh",
+    "sway"
 )
 
 SLEEP_STATE_FILE = "/tmp/pi_fake_sleep_pids.txt"

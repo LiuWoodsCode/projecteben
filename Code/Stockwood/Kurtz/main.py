@@ -17,8 +17,8 @@ from __future__ import annotations
 
 import argparse
 import curses
-import os
 import signal
+import subprocess
 from dataclasses import dataclass
 from typing import Callable
 
@@ -38,14 +38,40 @@ class AndroidRecoveryMock:
         self.selected = 0
         self.running = True
 
-        self.items: list[MenuItem] = [
-            MenuItem("Exit to system", self.exit_to_system),
-            MenuItem("Test page", self.show_test_page),
+        self.main_items: list[MenuItem] = [
+            MenuItem("Reboot system now", self.exit_to_system),
+            MenuItem("Factory reset", self.show_test_page),
+            MenuItem("Wipe cache", self.show_test_page),
+            MenuItem("Enter bash shell", self.show_test_page),
+            MenuItem("View logs", self.show_logs_page),
+            MenuItem("Power off", self.show_test_page),
+        ]
+
+        self.log_items: list[MenuItem] = [
+            MenuItem("Kernel logs", self.view_kernel_logs),
+            MenuItem("Userspace logs", self.view_userspace_logs),
+            MenuItem("Back", self.back_to_main),
         ]
 
         with open("/proc/version", "r") as f:
             version = f.read().strip()
 
+        try:
+            with open("/etc/NoelleStockwood/revision", "r") as f:
+                stage = f.read().strip()
+        except:
+            stage = "unknown"
+        try:
+            with open("/proc/device-tree/model", "r") as f:
+                device_model = f.read().strip('\x00').strip()
+        except FileNotFoundError:
+            device_model = "unknown" 
+
+        try:
+            with open("/proc/device-tree/serial_number", "r") as f:
+                device_sn = f.read().strip('\x00').strip()
+        except FileNotFoundError:
+            device_sn = "unknown" 
         parts = version.split()
 
         kernel_name = parts[0]          # Linux
@@ -57,64 +83,15 @@ class AndroidRecoveryMock:
 
         build_info = version.split(")")[-1].strip()
 
-        path = "/etc/NoelleStockwood"
-
-        if os.path.isdir(path):
-            is_stockwood = True
-            try:
-                with open("/etc/NoelleStockwood/revision", "r") as f:
-                    stockwoodrev = f.read().replace("\x00", "").strip()
-            except:
-                stockwoodrev = "unknown"
-            try:
-                with open("/etc/NoelleStockwood/model", "r") as f:
-                    stockwoodmodel = f.read().replace("\x00", "").strip()
-            except:
-                stockwoodmodel = "unknown"
-        else:
-            is_stockwood = False
-            stockwoodrev = "not applicable"
-            stockwoodmodel = "not applicable"
-
-        if os.path.exists("/sys/firmware/devicetree/base/model"):
-            with open("/sys/firmware/devicetree/base/model", "r") as f:
-                model = f.read().replace("\x00", "").strip()
-
-        elif os.path.exists("/sys/class/dmi/id/product_name"):
-            with open("/sys/class/dmi/id/product_name", "r") as f:
-                model = f.read().strip()
-
-        else:
-            self.model = "Unknown Device"
-
-        serial = "Unknown"
-        revision = "Unknown"
-
-        with open("/proc/cpuinfo", "r") as f:
-            for line in f:
-                if line.startswith("Serial"):
-                    serial = line.split(":")[1].strip()
-                elif line.startswith("Revision"):
-                    revision = line.split(":")[1].strip()
-
-        print(f"Model: {model}")
-        print(f"Serial: {serial}")
-        print(f"Revision: {revision}")
-
         kernel1 = f"{kernel_name} {kernel_version} built by {build_user_host}"
-        if is_stockwood:
-            self.header_lines = [
-                "Project Stockwood Recovery",
-                kernel1,
-                "Connect a USB keyboard.",
-            ]
-        else:
-            self.header_lines = [
-                "Project Stockwood Recovery",
-                "WARNING: Possibly unofficial hw config (NoelleStockwood folder missing)",
-                kernel1,
-                "Connect a USB keyboard.",
-            ]
+        line2 = f"base=\"{device_model}\" rev=\"{stage}\""
+        self.header_lines = [
+            "Project Stockwood Recovery",
+            kernel1,
+            line2,
+            "Connect a USB keyboard to continue.",
+            # "Use volume up/down and power.",
+        ]
 
         self.corrupt_lines = [
             "Cannot load Android system. Your data may be corrupt. If",
@@ -124,24 +101,8 @@ class AndroidRecoveryMock:
         ]
 
         self.footer_lines = [
-            f"Running kernel {kernel1}",
-            "system info:",
-            f"Is hw NoelleStockwood? {is_stockwood}",
-            f"rpi_model=\"{model}\" stockwood_model=\"{stockwoodmodel}\"",
-            f"serial=\"{serial}\"",
-            f"rpi_rev=\"{revision}\" stockwood_rev=\"{stockwoodrev}\""
+            "Use volume up/down and power.",
         ]
-
-        self.corrupt_lines = [
-            "Warning: Unofficial hw config (NoelleStockwood folder missing)"
-        ]
-
-        if self.reason == "corrupt":
-            self.footer_lines = [
-                "***** NEED TO WIPE USERDATA *****",
-                "REASON IS:",
-                "[RescueParty]",
-            ]
 
         self.test_lines = [
             "Test page",
@@ -164,12 +125,14 @@ class AndroidRecoveryMock:
         if curses.has_colors():
             curses.start_color()
             curses.use_default_colors()
-
-            LIGHT_YELLOW = 226
+            if curses.COLORS >= 256:
+                LIGHT_YELLOW = 226
+            else:
+                LIGHT_YELLOW = curses.COLOR_YELLOW
             curses.init_pair(1, LIGHT_YELLOW, -1)
             curses.init_pair(2, curses.COLOR_RED, -1)
             curses.init_pair(3, curses.COLOR_CYAN, -1)
-            curses.init_pair(4, curses.COLOR_WHITE, curses.COLOR_CYAN)
+            curses.init_pair(4, curses.COLOR_WHITE, curses.COLOR_BLUE)
             curses.init_pair(5, curses.COLOR_WHITE, -1)
 
     def attr(self, pair: int, bold: bool = False) -> int:
@@ -207,6 +170,8 @@ class AndroidRecoveryMock:
 
         if self.page == "main":
             self.draw_main()
+        elif self.page == "logs":
+            self.draw_logs_page()
         else:
             self.draw_test_page()
 
@@ -235,7 +200,7 @@ class AndroidRecoveryMock:
         return y
 
     def draw_menu(self, y: int) -> None:
-        for index, item in enumerate(self.items):
+        for index, item in enumerate(self.current_items()):
             if index == self.selected:
                 self.add_selected_line(y + index, item.label)
             else:
@@ -264,7 +229,17 @@ class AndroidRecoveryMock:
         y = self.draw_corrupt_warning(y)
         self.draw_menu_border(y)
         self.draw_menu(y + 1)
-        self.draw_menu_border(y + 1 + len(self.items))
+        self.draw_menu_border(y + 1 + len(self.current_items()))
+        self.draw_footer()
+
+    def draw_logs_page(self) -> None:
+        y = 0
+
+        for line in ["View logs", "", "Select a log source to open its pager."]:
+            self.add_line(y, line, self.attr(5, bold=(line == "View logs")))
+            y += 1
+
+        self.draw_menu(y + 1)
         self.draw_footer()
 
     def draw_test_page(self) -> None:
@@ -283,12 +258,41 @@ class AndroidRecoveryMock:
     def show_test_page(self) -> None:
         self.page = "test"
 
+    def show_logs_page(self) -> None:
+        self.page = "logs"
+        self.selected = 0
+
     def back_to_main(self) -> None:
         self.page = "main"
+        self.selected = 0
+
+    def current_items(self) -> list[MenuItem]:
+        if self.page == "logs":
+            return self.log_items
+        if self.page == "main":
+            return self.main_items
+        return []
+
+    def run_external_command(self, command: list[str]) -> None:
+        curses.def_prog_mode()
+        curses.endwin()
+        try:
+            subprocess.run(command, check=False)
+        finally:
+            curses.reset_prog_mode()
+            self.stdscr.refresh()
+
+    def view_kernel_logs(self) -> None:
+        self.run_external_command(["dmesg"])
+
+    def view_userspace_logs(self) -> None:
+        self.run_external_command(["journalctl"])
 
     def activate_selected(self) -> None:
         if self.page == "main":
-            self.items[self.selected].action()
+            self.current_items()[self.selected].action()
+        elif self.page == "logs":
+            self.current_items()[self.selected].action()
         else:
             self.back_to_main()
 
@@ -298,12 +302,25 @@ class AndroidRecoveryMock:
                 self.back_to_main()
             return
 
+        if self.page == "logs":
+            if key == curses.KEY_UP:
+                self.selected = (self.selected - 1) % len(self.log_items)
+                return
+
+            if key == curses.KEY_DOWN:
+                self.selected = (self.selected + 1) % len(self.log_items)
+                return
+
+            if key in (curses.KEY_ENTER, 10, 13, ord(" ")):
+                self.activate_selected()
+            return
+
         if key == curses.KEY_UP:
-            self.selected = (self.selected - 1) % len(self.items)
+            self.selected = (self.selected - 1) % len(self.main_items)
             return
 
         if key == curses.KEY_DOWN:
-            self.selected = (self.selected + 1) % len(self.items)
+            self.selected = (self.selected + 1) % len(self.main_items)
             return
 
         if key in (curses.KEY_ENTER, 10, 13, ord(" ")):
