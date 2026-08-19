@@ -470,10 +470,7 @@ class Api:
         if self._wayvnc_proc and self._wayvnc_proc.poll() is None:
             return self._wayvnc_proc.pid  # already running
 
-        self._wayvnc_proc = subprocess.Popen([
-            "wayvnc",
-            "-g", "0.0.0.0"
-        ])
+        self._wayvnc_proc = self._start_wayvnc()
 
         return self._wayvnc_proc.pid
 
@@ -482,13 +479,81 @@ class Api:
         if self._wayvnc_proc and self._wayvnc_proc.poll() is None:
             return self._wayvnc_proc.pid
 
-        self._wayvnc_proc = subprocess.Popen([
-            "wayvnc",
-            "-g", "0.0.0.0",
-            "-w"
-        ])
+        self._wayvnc_proc = self._start_wayvnc(websocket=True)
 
         return self._wayvnc_proc.pid
+
+    @staticmethod
+    def _hyprland_running() -> bool:
+        """Return whether a Hyprland compositor is running for this user."""
+        try:
+            uid = os.getuid()
+            for process in psutil.process_iter(["name", "cmdline", "uids"]):
+                try:
+                    process_uids = process.info.get("uids")
+                    if process_uids is not None and process_uids.real != uid:
+                        continue
+
+                    name = process.info.get("name") or ""
+                    cmdline = process.info.get("cmdline") or []
+                    if name.lower() == "hyprland" or any(
+                        Path(argument).name.lower() == "hyprland"
+                        for argument in cmdline
+                    ):
+                        return True
+                except (psutil.Error, OSError):
+                    continue
+        except (psutil.Error, OSError):
+            pass
+        return False
+
+    @staticmethod
+    def _hyprland_environment() -> dict[str, str]:
+        """Build the environment needed to attach wayvnc to Hyprland."""
+        environment = os.environ.copy()
+        runtime_dir = Path(environment.get("XDG_RUNTIME_DIR", f"/run/user/{os.getuid()}"))
+        environment["XDG_RUNTIME_DIR"] = str(runtime_dir)
+
+        hypr_dir = runtime_dir / "hypr"
+        signatures = sorted(path.name for path in hypr_dir.iterdir() if path.is_dir())
+        if not signatures:
+            raise RuntimeError(f"No Hyprland instance found in {hypr_dir}")
+        environment["HYPRLAND_INSTANCE_SIGNATURE"] = signatures[0]
+
+        displays = sorted(
+            path.name
+            for path in runtime_dir.glob("wayland-*")
+            if path.is_socket()
+        )
+        if not displays:
+            raise RuntimeError(f"No Wayland display found in {runtime_dir}")
+        environment["WAYLAND_DISPLAY"] = displays[0]
+        return environment
+
+    def _start_wayvnc(self, websocket: bool = False) -> subprocess.Popen:
+        """Start wayvnc, adding Hyprland's headless output setup when needed."""
+        command = ["wayvnc"]
+        environment = None
+
+        if self._hyprland_running():
+            environment = self._hyprland_environment()
+            subprocess.run(
+                ["hyprctl", "output", "create", "headless", "VNC-1"],
+                env=environment,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                check=False,
+            )
+            command.extend(["--log-level=error", "--disable-resizing"])
+            command.extend(["-g", "-o", "VNC-1"])
+
+        if environment:
+            command.extend(["-w"] if websocket else [])
+            command.extend(["0.0.0.0", "5900"])
+        else:
+            command.extend(["-g", "0.0.0.0"])
+            command.extend(["-w"] if websocket else [])
+        return subprocess.Popen(command, env=environment)
 
     def start_wayvnc_with_novnc(self) -> dict:
         """Start wayvnc and noVNC proxy."""

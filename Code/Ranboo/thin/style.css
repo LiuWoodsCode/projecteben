@@ -3,7 +3,7 @@
 	--radius: 24px;
 	--transition: 300ms cubic-bezier(0.2, 0.8, 0.2, 1);
 	--safe: max(24px, env(safe-area-inset-bottom));
-	--font-ui: "Segoe UI Variable", "Segoe UI", "Noto Sans", sans-serif;
+	--font-ui: "Inclusive Sans", sans-serif;
 }
 
 * {

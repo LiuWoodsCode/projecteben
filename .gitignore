@@ -10,3 +10,4 @@ drivers/__pycache__/
 crash_logs/*
 err*
 panic*
+*.DS_Store
