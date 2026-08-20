@@ -63,6 +63,7 @@ def _webui_html():
         <p>/device/resource/disk: <span id="device-disk">loading...</span></p>
         <p>/device/resource/mem: <span id="device-mem">loading...</span></p>
         <p>/vnc/status: <span id="vnc-status">loading...</span></p>
+        <p>/power/throttle: <span id="power-throttle">loading...</span></p>
     </div>
 
     <h2>Actions</h2>
@@ -78,6 +79,12 @@ def _webui_html():
         <button onclick="postAction('/vnc/start/novnc')">Start VNC noVNC</button>
         <button onclick="postAction('/vnc/stop')">Stop VNC</button>
         <button onclick="postAction('/vnc/stop/novnc')">Stop noVNC</button>
+    </p>
+    <p>
+        <button onclick="getAction('/ironmouse/ap/enable')">Enable Ironmouse AP</button>
+        <button onclick="getAction('/ironmouse/ap/disable')">Disable Ironmouse AP</button>
+        <button onclick="getAction('/ironmouse/eth/enable')">Enable Ironmouse Ethernet sharing</button>
+        <button onclick="getAction('/ironmouse/eth/disable')">Disable Ironmouse Ethernet sharing</button>
     </p>
 
     <h2>Set clock</h2>
@@ -106,6 +113,7 @@ def _webui_html():
             ['device-disk', '/device/resource/disk'],
             ['device-mem', '/device/resource/mem'],
             ['vnc-status', '/vnc/status'],
+            ['power-throttle', '/power/throttle'],
         ];
 
         function localDateTimeValue() {
@@ -148,6 +156,17 @@ def _webui_html():
                     headers: body ? {'Content-Type': 'application/json'} : {},
                     body: body ? JSON.stringify(body) : undefined,
                 });
+                const text = await response.text();
+                setOutput(text);
+            } catch (error) {
+                setOutput(String(error));
+            }
+        }
+
+        async function getAction(path) {
+            setOutput('Sending request to ' + path + '...');
+            try {
+                const response = await fetch(path);
                 const text = await response.text();
                 setOutput(text);
             } catch (error) {
@@ -617,7 +636,7 @@ def eth_enable(req):
 
 @app.get("/ironmouse/ap/disable")
 def ap_enable(req):
-    backend.disable_ap_ap()
+    backend.disable_ap()
     return {"ok": True}
 
 @app.get("/ironmouse/eth/disable")

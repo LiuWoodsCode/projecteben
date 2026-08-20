@@ -286,7 +286,7 @@ class Api:
         match = re.search(r"volt=([\d.]+)", result.stdout)
         return float(match.group(1)) if match else None
 
-    def throttled() -> dict:
+    def throttled(self) -> dict:
         """
         Get and parse the Raspberry Pi throttling state using vcgencmd.
 
