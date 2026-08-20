@@ -766,3 +766,19 @@ class Api:
         # Most likely through some sort of microcontroller
         # So we stub this for now
         return True
+
+    def enable_ap(self) -> CommandResult:
+        """Enable the access point"""
+        return self._run(["sudo", "rpi-hotspot", "start-ap"])
+
+    def disable_ap(self) -> CommandResult:
+        """Disable the access point"""
+        return self._run(["sudo", "rpi-hotspot", "stop-ap"])
+
+    def enable_eth_share(self) -> CommandResult:
+        """Enable the ethernet sharing"""
+        return self._run(["sudo", "rpi-hotspot", "enable-eth-share"])
+
+    def disable_eth_share(self) -> CommandResult:
+        """Disable the ethernet sharing"""
+        return self._run(["sudo", "rpi-hotspot", "disable-eth-share"])
