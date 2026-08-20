@@ -286,6 +286,47 @@ class Api:
         match = re.search(r"volt=([\d.]+)", result.stdout)
         return float(match.group(1)) if match else None
 
+    def throttled() -> dict:
+        """
+        Get and parse the Raspberry Pi throttling state using vcgencmd.
+
+        Returns:
+            dict: The raw value plus the current and historical throttle states.
+        """
+
+        result = subprocess.run(
+            ["vcgencmd", "get_throttled"],
+            capture_output=True,
+            text=True,
+            check=True
+        )
+
+        # Example output:
+        # throttled=0x50005
+        output = result.stdout.strip()
+
+        if not output.startswith("throttled="):
+            raise ValueError(f"Unexpected vcgencmd output: {output!r}")
+
+        value = int(output.split("=", 1)[1], 16)
+
+        return {
+            "raw": value,
+            "raw_hex": f"0x{value:x}",
+
+            # Current conditions
+            "undervoltage_detected": bool(value & 0x1),
+            "arm_frequency_capped": bool(value & 0x2),
+            "currently_throttled": bool(value & 0x4),
+            "soft_temperature_limit_active": bool(value & 0x8),
+
+            # Historical conditions
+            "undervoltage_has_occurred": bool(value & 0x10000),
+            "arm_frequency_capping_has_occurred": bool(value & 0x20000),
+            "throttling_has_occurred": bool(value & 0x40000),
+            "soft_temperature_limit_has_occurred": bool(value & 0x80000),
+        }
+
     def usb_devices(self) -> list:
         """Return attached USB devices as a list of lines."""
         result = self._run(["lsusb"])
