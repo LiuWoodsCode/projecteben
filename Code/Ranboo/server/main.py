@@ -600,6 +600,31 @@ def hibernate(req):
     return {"ok": True}
 
 
+@app.get("/power/throttle")
+def throttled(req):
+    data = backend.throttled()
+    return {"ok": True, "data": data}
+
+@app.get("/ironmouse/ap/enable")
+def ap_enable(req):
+    backend.enable_ap()
+    return {"ok": True}
+
+@app.get("/ironmouse/eth/enable")
+def eth_enable(req):
+    backend.enable_eth_share()
+    return {"ok": True}
+
+@app.get("/ironmouse/ap/disable")
+def ap_enable(req):
+    backend.disable_ap_ap()
+    return {"ok": True}
+
+@app.get("/ironmouse/eth/disable")
+def eth_enable(req):
+    backend.disable_eth_share()
+    return {"ok": True}
+
 @app.post("/files/upload")
 def upload_file(req):
     """Upload raw bytes to a path.
