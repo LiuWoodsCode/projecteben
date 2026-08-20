@@ -1026,16 +1026,29 @@ const UI = {
 
     // Disable/enable power button
     updatePowerButton() {
-        if (UI.connected &&
-            UI.rfb.capabilities.power &&
-            !UI.rfb.viewOnly) {
-            document.getElementById('noVNC_power_button')
-                .classList.remove("noVNC_hidden");
-        } else {
-            document.getElementById('noVNC_power_button')
-                .classList.add("noVNC_hidden");
-            // Close power panel if open
-            UI.closePowerPanel();
+        document.getElementById('noVNC_power_button')
+            .classList.remove("noVNC_hidden");
+    },
+
+    async shutdownHost() {
+        await UI.sendPowerRequest("/power/poweroff", "Shutdown request sent");
+    },
+
+    async rebootHost() {
+        await UI.sendPowerRequest("/power/restart", "Restart request sent");
+    },
+
+    async sendPowerRequest(endpoint, successMessage) {
+        try {
+            const target = window.location.protocol + "//" +
+                window.location.hostname + ":" + EBEN_API_PORT + endpoint;
+            const beacon = new Image();
+            beacon.src = target + "?ts=" + Date.now();
+
+            UI.showStatus(successMessage + " on " + window.location.hostname + ":" + EBEN_API_PORT);
+        } catch (exc) {
+            Log.Error("Failed to call power endpoint " + endpoint + ": " + exc);
+            UI.showStatus("Failed to send power request: " + exc, 'error');
         }
     },
 
