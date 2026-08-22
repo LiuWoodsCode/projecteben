@@ -6,7 +6,6 @@ import time
 
 MODULE_NAMES = {
     "battery": "batt",
-    "temperature": "temp",
     "backlight": "backlight",
     "nvram": "nvram",
 }
@@ -101,43 +100,196 @@ def get_battery_data():
     )
 
     data = normalize_mapping(result) or {}
+
+    # Legacy tuple/list format:
+    # (charge, charging, cycles, voltage)
     if not data and isinstance(result, (tuple, list)) and len(result) >= 4:
+        charging = bool(result[1])
+
         return {
             "charge": as_int(result[0]),
-            "charging": bool(result[1]),
+            "status": "Charging" if charging else "Discharging",
             "cycles": as_int(result[2]),
             "voltage": as_float(result[3]),
+
+            "power": 0.0,
+            "current": 0.0,
+            "temp": 0.0,
+
+            "energy_now": 0.0,
+            "energy_full": 0.0,
+            "energy_full_design": 0.0,
+
+            "present": True,
+            "manufacturer": "",
+            "model": "",
+            "serial": "",
+            "technology": "Unknown",
+
+            "voltage_min_design": 0.0,
+            "voltage_max_design": 0.0,
+
+            "scope": "System",
+            "type": "Battery",
         }
 
     battery = data.get("battery", data)
+
+    # Prefer an explicit status, but remain compatible with older battery
+    # modules that only expose charging/is_charging.
+    status = battery.get("status", battery.get("state"))
+
+    if status is None:
+        charging = as_bool(
+            battery.get(
+                "charging",
+                battery.get(
+                    "is_charging",
+                    battery.get("isCharging", False),
+                ),
+            )
+        )
+        status = "Charging" if charging else "Discharging"
+    else:
+        status = str(status)
+
     return {
-        "charge": as_int(battery.get("charge", battery.get("percent", battery.get("percentage")))),
-        "charging": as_bool(battery.get("charging", battery.get("is_charging", battery.get("isCharging", False)))),
-        "cycles": as_int(battery.get("cycles", battery.get("cycle_count", 0))),
-        "voltage": as_float(battery.get("voltage", battery.get("vbat", 0.0))),
+        # Dynamic state
+        "charge": as_int(
+            battery.get(
+                "charge",
+                battery.get(
+                    "percent",
+                    battery.get("percentage", 0),
+                ),
+            )
+        ),
+
+        "status": status,
+
+        "voltage": as_float(
+            battery.get(
+                "voltage",
+                battery.get(
+                    "voltage_now",
+                    battery.get("vbat", 0.0),
+                ),
+            )
+        ),
+
+        "power": as_float(
+            battery.get(
+                "power",
+                battery.get("power_now", 0.0),
+            )
+        ),
+
+        "current": as_float(
+            battery.get(
+                "current",
+                battery.get("current_now", 0.0),
+            )
+        ),
+
+        "temp": as_float(
+            battery.get(
+                "temp",
+                battery.get(
+                    "temperature",
+                    battery.get("battery_temp", 0.0),
+                ),
+            )
+        ),
+
+        # Capacity / wear
+        "energy_now": as_float(
+            battery.get(
+                "energy_now",
+                battery.get("energy", 0.0),
+            )
+        ),
+
+        "energy_full": as_float(
+            battery.get(
+                "energy_full",
+                battery.get("full_energy", 0.0),
+            )
+        ),
+
+        "energy_full_design": as_float(
+            battery.get(
+                "energy_full_design",
+                battery.get(
+                    "design_energy",
+                    battery.get("energy_design", 0.0),
+                ),
+            )
+        ),
+
+        "cycles": as_int(
+            battery.get(
+                "cycles",
+                battery.get("cycle_count", 0),
+            )
+        ),
+
+        # Hardware identity
+        "present": as_bool(
+            battery.get("present", True)
+        ),
+
+        "manufacturer": str(
+            battery.get(
+                "manufacturer",
+                battery.get("vendor", ""),
+            )
+        ),
+
+        "model": str(
+            battery.get(
+                "model",
+                battery.get("model_name", ""),
+            )
+        ),
+
+        "serial": str(
+            battery.get(
+                "serial",
+                battery.get("serial_number", ""),
+            )
+        ),
+
+        "technology": str(
+            battery.get(
+                "technology",
+                battery.get("chemistry", "Unknown"),
+            )
+        ),
+
+        # Design characteristics
+        "voltage_min_design": as_float(
+            battery.get(
+                "voltage_min_design",
+                battery.get("design_voltage_min", 0.0),
+            )
+        ),
+
+        "voltage_max_design": as_float(
+            battery.get(
+                "voltage_max_design",
+                battery.get("design_voltage_max", 0.0),
+            )
+        ),
+
+        # Classification
+        "scope": str(
+            battery.get("scope", "System")
+        ),
+
+        "type": str(
+            battery.get("type", "Battery")
+        ),
     }
-
-
-def get_temperature_data():
-    module = get_module(MODULE_NAMES["temperature"])
-    result = call_any(
-        module,
-        ["get_temperature", "read_temperature", "temperature", "get_temps", "get", "read"],
-    )
-
-    data = normalize_mapping(result) or {}
-    if not data and isinstance(result, (tuple, list)) and len(result) >= 2:
-        return {
-            "case": as_float(result[0]),
-            "batt": as_float(result[1]),
-        }
-
-    temp = data.get("temp", data)
-    return {
-        "case": as_float(temp.get("case", temp.get("case_temp", temp.get("cpu", 0.0)))),
-        "batt": as_float(temp.get("batt", temp.get("battery", temp.get("battery_temp", 0.0)))),
-    }
-
 
 def get_brightness():
     module = get_module(MODULE_NAMES["backlight"])
@@ -206,8 +358,6 @@ def ensure_startup_ready():
                 print("-" * 20)
                 battery = get_battery_data()
                 print("Batt Comm OK!")
-                temperature = get_temperature_data()
-                print("Temp Comm OK!")
                 brightness = get_brightness()
                 set_brightness(brightness)
                 brightness_check = get_brightness()
@@ -265,18 +415,34 @@ def handle_command(cmd):
     # ---- BATTERY ----
     if cmd == "BATT?":
         b = get_battery_data()
-        return (f"CHARGE={int(b['charge'])}%\r\n"
-                f"CHARGING={int(b['charging'])}\r\n"
-                f"CYCLES={b['cycles']}\r\n"
-                f"VOLTAGE={b['voltage']:.2f}V\r\n"
-                "OK\r\n")
 
-    # ---- TEMPERATURE ----
-    if cmd == "TEMP?":
-        t = get_temperature_data()
-        return (f"CASE={t['case']:.1f}C\r\n"
-                f"BATT={t['batt']:.1f}C\r\n"
-                "OK\r\n")
+        return (
+            f"CHARGE={int(b['charge'])}%\r\n"
+            f"STATUS={b['status']}\r\n"
+            f"VOLTAGE={b['voltage']:.2f}V\r\n"
+            f"POWER={b['power']:.2f}W\r\n"
+            f"CURRENT={b['current']:.2f}A\r\n"
+            f"TEMP={b['temp']:.1f}C\r\n"
+
+            f"ENERGY_NOW={b['energy_now']:.2f}Wh\r\n"
+            f"ENERGY_FULL={b['energy_full']:.2f}Wh\r\n"
+            f"ENERGY_FULL_DESIGN={b['energy_full_design']:.2f}Wh\r\n"
+            f"CYCLES={b['cycles']}\r\n"
+
+            f"PRESENT={int(b['present'])}\r\n"
+            f"MANUFACTURER={b['manufacturer']}\r\n"
+            f"MODEL={b['model']}\r\n"
+            f"SERIAL={b['serial']}\r\n"
+            f"TECHNOLOGY={b['technology']}\r\n"
+
+            f"VOLTAGE_MIN_DESIGN={b['voltage_min_design']:.2f}V\r\n"
+            f"VOLTAGE_MAX_DESIGN={b['voltage_max_design']:.2f}V\r\n"
+
+            f"SCOPE={b['scope']}\r\n"
+            f"TYPE={b['type']}\r\n"
+
+            "OK\r\n"
+        )
 
     # ---- BRIGHTNESS ----
     if cmd == "BRIGHT?":

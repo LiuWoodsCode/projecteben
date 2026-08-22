@@ -1,4 +1,4 @@
-"""Backlight emulator for Kuraine."""
+"""Backlight emulator for Monika."""
 
 from __future__ import annotations
 

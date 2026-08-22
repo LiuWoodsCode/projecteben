@@ -1,4 +1,4 @@
-"""NVRAM emulator for Kuraine."""
+"""NVRAM emulator for Monika."""
 
 from __future__ import annotations
 
