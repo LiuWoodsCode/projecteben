@@ -3,6 +3,7 @@ import os
 import pty
 import select
 import time
+import buildvars
 
 MODULE_NAMES = {
     "battery": "batt",
@@ -410,7 +411,7 @@ def handle_command(cmd):
         return resp_ok("PONG\r\n")
     
     if cmd == "VER?":
-        return resp_ok("VER=0.1\r\n")
+        return resp_ok(f"BUILD={buildvars.BUILD_STRING}\r\n")
 
     # ---- BATTERY ----
     if cmd == "BATT?":
