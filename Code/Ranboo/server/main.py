@@ -1,4 +1,5 @@
 import sys
+from pathlib import Path
 from dataclasses import asdict
 
 from flaskish import App, BinaryResponse, TextResponse
@@ -44,6 +45,7 @@ def _webui_html():
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link rel="stylesheet" href="/theme/style.css">
     <title>Ranboo Server</title>
 </head>
 <body>
@@ -195,7 +197,7 @@ def _webui_html():
 # This is a really shitty way to implement the theming system
 # In the future this should be configurable
 THEME = "butchervanity"
-app.mount("/theme", f"./vanity/themes/{THEME}")
+app.mount("/theme", Path(__file__).resolve().parent / "vanity" / "themes" / THEME)
 
 @app.get("/")
 def index(req):

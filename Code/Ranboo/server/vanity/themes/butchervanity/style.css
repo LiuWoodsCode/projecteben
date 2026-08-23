@@ -1,0 +1,12 @@
+@font-face {
+  font-family: "StayPuft";
+  src: url("/theme/font/StayPuft.ttf") format("truetype");
+  font-weight: normal;
+  font-style: normal;
+}
+
+html,
+body {
+  font-family: "StayPuft", sans-serif;
+  background: #FFFF00;
+}
