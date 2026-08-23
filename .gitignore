@@ -11,3 +11,4 @@ crash_logs/*
 err*
 panic*
 *.DS_Store
+Code/Stockwood/Monika/built/*
