@@ -15,6 +15,7 @@ def _clamp(value):
 
 
 def get_brightness():
+    print("Backlight shim: Returning last brightness value")
     return _BRIGHTNESS
 
 
@@ -37,7 +38,7 @@ def read():
 def set_brightness(value):
     global _BRIGHTNESS
     _BRIGHTNESS = _clamp(value)
-    print(f"Backlight shim: set brightness to {_BRIGHTNESS}")
+    print(f"Backlight shim: set brightness to {_BRIGHTNESS} (was {int(value)})")
     return _BRIGHTNESS
 
 

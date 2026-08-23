@@ -32,6 +32,7 @@ _STATE = {
     "type": "Battery",             # real HW: identifies this power_supply as a battery
 }
 def get_battery():
+    print("Smart battery shim: Returning sample state")
     return dict(_STATE)
 
 
