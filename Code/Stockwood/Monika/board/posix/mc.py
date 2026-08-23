@@ -511,6 +511,12 @@ def main():
     print("This software is licensed under the GNU Public License, version 3.0.")
     print("\"Just Monika\" -Monika, 2017, colorized")
     print("*" * 16)
+    print(f"Build: {buildvars.BUILD_STRING}")
+    print(f"Builder: {buildvars.BUILD_USER}@{buildvars.BUILD_HOSTNAME}")
+    print(f"Build date: {buildvars.BUILD_DATE}")
+    print(f"Built OS: {buildvars.BUILD_OS} arch={buildvars.BUILD_ARCH}")
+    print(f"Build git: commit={buildvars.BUILD_GIT_COMMIT} commit={buildvars.BUILD_GIT_BRANCH}")
+    print("*" * 16)
     ensure_startup_ready()
 
     master_fd, slave_fd = pty.openpty()
