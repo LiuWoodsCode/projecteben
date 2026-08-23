@@ -40,6 +40,7 @@ def write_nvram(addr, data):
 
     _check_range(addr, len(payload))
     _MEMORY[addr : addr + len(payload)] = payload
+    print(f"Nvram shim: wrote data to {int(addr)} length {len(payload)}")
     return True
 
 
