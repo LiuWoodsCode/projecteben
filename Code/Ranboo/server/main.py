@@ -192,6 +192,10 @@ def _webui_html():
     {"content-type": "text/html; charset=utf-8"},
     )
 
+# This is a really shitty way to implement the theming system
+# In the future this should be configurable
+THEME = "butchervanity"
+app.mount("/theme", f"./vanity/themes/{THEME}")
 
 @app.get("/")
 def index(req):
