@@ -508,6 +508,7 @@ def handle_command(cmd):
 
 def main():
     print("Monika MCU for Project Stockwood")
+    print(f"Board codename: {buildvars.BOARD_NAME}")
     print("This software is licensed under the GNU Public License, version 3.0.")
     print("\"Just Monika\" -Monika, 2017, colorized")
     print("*" * 16)
