@@ -16,6 +16,7 @@ def _check_range(addr, length):
 
 def read_nvram(addr, length):
     addr, length = _check_range(addr, length)
+    print(f"Nvram shim: read memory from {int(addr)}, len {int(length)}")
     return bytes(_MEMORY[addr : addr + length])
 
 
