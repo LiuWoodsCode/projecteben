@@ -515,7 +515,7 @@ def main():
     print(f"Builder: {buildvars.BUILD_USER}@{buildvars.BUILD_HOSTNAME}")
     print(f"Build date: {buildvars.BUILD_DATE}")
     print(f"Built OS: {buildvars.BUILD_OS} arch={buildvars.BUILD_ARCH}")
-    print(f"Build git: commit={buildvars.BUILD_GIT_COMMIT} commit={buildvars.BUILD_GIT_BRANCH}")
+    print(f"Build git: commit={buildvars.BUILD_GIT_COMMIT} branch={buildvars.BUILD_GIT_BRANCH}")
     print("*" * 16)
     ensure_startup_ready()
 
