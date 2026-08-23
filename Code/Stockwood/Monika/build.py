@@ -60,7 +60,61 @@ def strip_comments_from_tree(root: Path) -> None:
     for path in root.rglob("*.py"):
         if path.is_file():
             strip_python_comments(path)
+            
+def get_build_os() -> str:
+    system = platform.system()
 
+    if system == "Windows":
+        # Only BuildLabEx is read from the registry.
+        build_lab_ex = "unknown"
+
+        try:
+            import winreg
+
+            with winreg.OpenKey(
+                winreg.HKEY_LOCAL_MACHINE,
+                r"SOFTWARE\Microsoft\Windows NT\CurrentVersion",
+            ) as key:
+                build_lab_ex, _ = winreg.QueryValueEx(
+                    key,
+                    "BuildLabEx",
+                )
+        except (OSError, ImportError):
+            pass
+
+        return (
+            f"Windows {platform.release()} "
+            f"(version {platform.version()}, "
+            f"edition {platform.win32_edition()}, "
+            f"BuildLabEx {build_lab_ex})"
+        )
+
+    if system == "Darwin":
+        mac_version = platform.mac_ver()[0]
+
+        try:
+            build_number = subprocess.run(
+                ["sw_vers", "-buildVersion"],
+                check=True,
+                capture_output=True,
+                text=True,
+            ).stdout.strip()
+        except (subprocess.CalledProcessError, FileNotFoundError):
+            build_number = "unknown"
+
+        return (
+            f"macOS {mac_version} "
+            f"(build {build_number}, "
+            f"Darwin {platform.release()})"
+        )
+
+    if system == "Linux":
+        return (
+            f"Linux {platform.release()} "
+            f"({platform.version()})"
+        )
+
+    return platform.platform()
 
 def generate_buildvars(
     board_name: str,
@@ -211,7 +265,7 @@ def main() -> None:
     common_metadata = {
         "build_user": getpass.getuser(),
         "build_hostname": platform.node(),
-        "build_os": platform.system(),
+        "build_os": get_build_os(),
         "build_arch": platform.machine(),
         "git_branch": git_branch,
         "git_commit": git_commit,
