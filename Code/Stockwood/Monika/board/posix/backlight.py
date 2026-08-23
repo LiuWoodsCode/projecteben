@@ -38,7 +38,7 @@ def read():
 def set_brightness(value):
     global _BRIGHTNESS
     _BRIGHTNESS = _clamp(value)
-    print(f"Backlight shim: set brightness to {_BRIGHTNESS} (was {int(value)})")
+    print(f"Backlight shim: set brightness to {_BRIGHTNESS} (pre-clamp was {int(value)})")
     return _BRIGHTNESS
 
 
