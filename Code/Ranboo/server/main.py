@@ -46,13 +46,18 @@ def _webui_html():
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <link rel="stylesheet" href="/theme/style.css">
+    <style>
+        .api-results span, #output {
+            font-family: monospace;
+        }
+    </style>
     <title>Ranboo Server</title>
 </head>
 <body>
     <h1>Ranboo Server</h1>
     <p>This is a prototype of the web UI and is not repersentive of the final product</p>
     <h2>Text data</h2>
-    <div>
+    <div class="api-results">
         <p>/device/model: <span id="device-model">loading...</span></p>
         <p>/device/serial: <span id="device-serial">loading...</span></p>
         <p>/device/revision: <span id="device-revision">loading...</span></p>
