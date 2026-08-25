@@ -50,6 +50,18 @@ def _webui_html():
         .api-results span, #output {
             font-family: monospace;
         }
+
+
+        .application {
+            margin-bottom: 1em;
+            padding: 0.75em;
+            border: 1px solid #000;
+        }
+
+        .application button {
+            margin-top: 0.5em;
+        }
+
     </style>
     <title>Ranboo Server</title>
 </head>
@@ -103,6 +115,37 @@ def _webui_html():
 
     <h2>Result</h2>
     <pre id="output">Click a button to load data.</pre>
+
+        <h2>Applications</h2>
+    <p>THIS IS A MOCKUP! NOTHING HERE WORKS! ^q^</p>
+
+    <div class="applications">
+        <div class="application">
+            <strong>Copyparty</strong>
+            <span> — Running</span><br>
+            Web: <a href="https://www.youtube.com/watch?v=vjBFftpQxxM">http://website</a><br>
+            <button type="button">Open</button>
+            <button type="button">Restart</button>
+            <button type="button">Stop</button>
+        </div>
+
+        <div class="application">
+            <strong>Visual Studio Code Tunnel</strong>
+            <span> — Running</span><br>
+            Web: <a href="https://www.youtube.com/watch?v=vjBFftpQxxM">https://website</a><br>
+            <button type="button">Open</button>
+            <button type="button">Restart</button>
+            <button type="button">Stop</button>
+        </div>
+
+        <div class="application">
+            <strong>Doki Doki Literature Club!</strong>
+            <span> — Stopped</span><br>
+            Web: <a href="https://www.youtube.com/watch?v=vjBFftpQxxM">http://website</a><br>
+            <button type="button">Open</button>
+            <button type="button">Start</button>
+        </div>
+    </div>
 
     <script>
         const output = document.getElementById('output');
