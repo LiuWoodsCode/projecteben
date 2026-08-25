@@ -55,7 +55,7 @@ def _webui_html():
 </head>
 <body>
     <h1>Ranboo Server</h1>
-    <p>This is a prototype of the web UI and is not repersentive of the final product</p>
+    <p>This is a prototype of the web UI and is not repersentive of the final product. Temperature units are not provide by the API, they are inserted by <i>vanity</i> for your convience!!!</p>
     <h2>Text data</h2>
     <div class="api-results">
         <p>/device/model: <span id="device-model">loading...</span></p>
@@ -64,8 +64,8 @@ def _webui_html():
         <p>/kernel/cmdline: <span id="kernel-cmdline">loading...</span></p>
         <p>/kernel/version: <span id="kernel-version">loading...</span></p>
         <p>/device/hostname: <span id="device-hostname">loading...</span></p>
-        <p>/thermal/gpu: <span id="thermal-gpu">loading...</span></p>
-        <p>/thermal/cpu: <span id="thermal-cpu">loading...</span></p>
+        <p>/thermal/gpu: <span id="thermal-gpu">loading...</span> | <span class="temperature-unit"> (°C)</span></p>
+        <p>/thermal/cpu: <span id="thermal-cpu">loading...</span> | <span class="temperature-unit"> (°C)</span></p>
         <p>/session/uptime: <span id="session-uptime">loading...</span></p>
         <p>/device/resource/disk: <span id="device-disk">loading...</span></p>
         <p>/device/resource/mem: <span id="device-mem">loading...</span></p>
