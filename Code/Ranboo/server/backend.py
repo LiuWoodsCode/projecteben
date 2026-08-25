@@ -630,8 +630,8 @@ class Api:
                 self._wayvnc_proc.wait(timeout=5)
             except subprocess.TimeoutExpired:
                 self._wayvnc_proc.kill()
+                self._wayvnc_proc.wait()
 
-        self._wayvnc_proc = None
         return True
 
     def stop_novnc(self) -> bool:
@@ -645,24 +645,40 @@ class Api:
                 self._novnc_proc.wait(timeout=5)
             except subprocess.TimeoutExpired:
                 self._novnc_proc.kill()
+                self._novnc_proc.wait()
 
-        self._novnc_proc = None
         return True
+
+    @staticmethod
+    def _vnc_process_status(process: Optional[subprocess.Popen]) -> dict:
+        """Return a stable status payload for a tracked VNC process."""
+        returncode = process.poll() if process is not None else None
+        running = process is not None and returncode is None
+
+        return {
+            "running": running,
+            "pid": process.pid if running else None,
+            "exit_code": returncode if returncode is not None and returncode >= 0 else None,
+            "signal": -returncode if returncode is not None and returncode < 0 else None,
+        }
 
     def get_vnc_status(self) -> dict:
         """Get the status of wayvnc and noVNC processes."""
-        wayvnc_running = self._wayvnc_proc and self._wayvnc_proc.poll() is None
-        novnc_running = self._novnc_proc and self._novnc_proc.poll() is None
+        wayvnc = self._vnc_process_status(self._wayvnc_proc)
+
+        # noVNC is launched as wayvnc's companion.  Do not leave a stale proxy
+        # behind if wayvnc exits unexpectedly.
+        if (
+            self._wayvnc_proc is not None
+            and not wayvnc["running"]
+            and self._novnc_proc is not None
+            and self._novnc_proc.poll() is None
+        ):
+            self.stop_novnc()
 
         return {
-            "wayvnc": {
-                "running": wayvnc_running,
-                "pid": self._wayvnc_proc.pid if wayvnc_running else None,
-            },
-            "novnc": {
-                "running": novnc_running,
-                "pid": self._novnc_proc.pid if novnc_running else None,
-            }
+            "wayvnc": wayvnc,
+            "novnc": self._vnc_process_status(self._novnc_proc),
         }
 
     def set_time(self, datetime_str: str) -> CommandResult:

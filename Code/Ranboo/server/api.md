@@ -70,7 +70,7 @@ Possible failure:
 - `POST /vnc/stop` -> stop tracked `wayvnc`
 - `POST /vnc/stop/novnc` -> stop tracked noVNC
 - `GET /vnc/preview` -> PNG screenshot bytes
-- `GET /vnc/status` -> currently returns a plain text function object representation due to a route bug
+- `GET /vnc/status` -> return current wayvnc/noVNC process state, exit codes, and signals
 
 Typical success responses:
 

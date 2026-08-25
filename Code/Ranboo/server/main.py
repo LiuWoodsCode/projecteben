@@ -553,12 +553,10 @@ def vncstatus(req):
     - No query parameters or body are required.
 
     Response:
-    - Returns the backend status object directly.
-    - The current route returns the callable itself instead of invoking it,
-        so the response is the router's representation of that object rather than
-        a structured status payload.
+    - Returns the backend status object directly, including exit codes and
+        terminating signals for both tracked processes.
     """
-    return backend.get_vnc_status
+    return backend.get_vnc_status()
 
 
 @app.get("/power/restart")
