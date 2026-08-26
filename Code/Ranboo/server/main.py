@@ -87,10 +87,10 @@ def _webui_html():
 
     <h2>Actions</h2>
     <p>
-        <button onclick="postAction('/power/restart')">Restart</button>
-        <button onclick="postAction('/power/poweroff')">Power off</button>
-        <button onclick="postAction('/power/sleep')">Sleep</button>
-        <button onclick="postAction('/power/hibernate')">Hibernate</button>
+        <button onclick="getAction('/power/restart')">Restart</button>
+        <button onclick="getAction('/power/poweroff')">Power off</button>
+        <button onclick="getAction('/power/sleep')">Sleep</button>
+        <button onclick="getAction('/power/hibernate')">Hibernate</button>
     </p>
     <p>
         <button onclick="postAction('/vnc/start')">Start VNC</button>

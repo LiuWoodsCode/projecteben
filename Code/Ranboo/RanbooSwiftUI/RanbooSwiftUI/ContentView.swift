@@ -399,6 +399,12 @@ final class DeviceViewModel: ObservableObject {
             _ = try await api.command(path, method: "GET")
         }
     }
+
+    func runIronmouse(_ action: IronmouseAction) async {
+        await perform("\(action.title) completed") {
+            _ = try await api.command(action.path, method: "GET")
+        }
+    }
     
     private func perform(_ success: String, action: () async throws -> Void) async {
         statusMessage = nil
@@ -555,6 +561,14 @@ struct DeviceDetailView: View {
                         .clipShape(RoundedRectangle(cornerRadius: 8))
                 }
             }
+
+            Section("Ironmouse") {
+                ForEach(IronmouseAction.allCases) { action in
+                    Button(action.title, role: action.role) {
+                        Task { await model.runIronmouse(action) }
+                    }
+                }
+            }
             
             Section("Power") {
                 ForEach(PowerAction.allCases) { action in
@@ -636,6 +650,40 @@ struct DeviceDetailView: View {
 #elseif os(macOS)
         return Image(nsImage: image)
 #endif
+    }
+}
+
+enum IronmouseAction: String, CaseIterable, Identifiable {
+    case enableAccessPoint
+    case disableAccessPoint
+    case enableEthernetSharing
+    case disableEthernetSharing
+
+    var id: String { rawValue }
+
+    var path: String {
+        switch self {
+        case .enableAccessPoint: return "/ironmouse/ap/enable"
+        case .disableAccessPoint: return "/ironmouse/ap/disable"
+        case .enableEthernetSharing: return "/ironmouse/eth/enable"
+        case .disableEthernetSharing: return "/ironmouse/eth/disable"
+        }
+    }
+
+    var title: String {
+        switch self {
+        case .enableAccessPoint: return "Enable Access Point"
+        case .disableAccessPoint: return "Disable Access Point"
+        case .enableEthernetSharing: return "Enable Ethernet Sharing"
+        case .disableEthernetSharing: return "Disable Ethernet Sharing"
+        }
+    }
+
+    var role: ButtonRole? {
+        switch self {
+        case .disableAccessPoint, .disableEthernetSharing: return .destructive
+        case .enableAccessPoint, .enableEthernetSharing: return nil
+        }
     }
 }
 

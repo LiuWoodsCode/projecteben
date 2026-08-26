@@ -782,6 +782,7 @@ class Api:
         # "Eben.Generic": Generic devices that we know are used for Project Eben
         # "Deletescape.Generic": Generic devices running deletescapeOS
         # "Eben.Stockwood": Project Stockwood devices
+        # "Eben.Stockwood.Nirav": Project Nirav devices
         # "Eben.Ironmouse": Project Ironmouse devices
         # "Lumon": Project Lumon devices
         # "Deletescape.Phone": phones running deletescapeOS
