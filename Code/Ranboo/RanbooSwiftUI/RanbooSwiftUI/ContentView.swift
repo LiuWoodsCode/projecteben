@@ -1,13 +1,9 @@
-//
-//  ContentView.swift
-//  RanbooSwiftUI
-//
-//  Created by Pixel Prowler on 8/25/26.
-//
-
 import SwiftUI
-import Combine
 import Network
+import Combine
+import PhotosUI
+import Photos
+import UniformTypeIdentifiers
 
 #if os(iOS)
 import UIKit
@@ -35,7 +31,7 @@ struct ServiceState {
             case .online(let detail):
                 return detail.map { "Online (\($0))" } ?? "Online"
             case .offline(let error):
-                return "Offline: \(error)"
+                return "Error: \(error)"
             }
         }
         
@@ -43,10 +39,22 @@ struct ServiceState {
             if case .online = self { return true }
             return false
         }
+        
+        var indicatorColor: Color {
+            switch self {
+            case .checking:
+                return .orange
+            case .online:
+                return .green
+            case .notChecked, .offline:
+                return .red
+            }
+        }
     }
     
     var ssh: Status = .notChecked
     var http: Status = .notChecked
+    var ios: Status = .notChecked
     var ranboo: Status = .notChecked
 }
 
@@ -194,9 +202,13 @@ struct EbenAPIClient {
         
         guard body == "Hello", header == "content" else {
             throw EbenAPIError.api(
-                "Port 8000 answered, but /test did not match the Ranboo/Eben API signature."
+                "Port 8000 answered, but /test did not match the Ranboo API signature."
             )
         }
+    }
+    
+    func detectIfAvailableWithOS() async throws {
+        _ = try await request("/test", timeout: 5)
     }
     
     func deviceInfo() async throws -> DeviceInfo {
@@ -258,6 +270,46 @@ struct EbenAPIClient {
         }
         return image
     }
+    
+    func upload(_ data: Data, originalFilename: String) async throws {
+        guard let baseURL else { throw EbenAPIError.invalidURL }
+        
+        let filename = (originalFilename as NSString).lastPathComponent
+        guard !filename.isEmpty, filename != ".", filename != ".." else {
+            throw EbenAPIError.api("The selected file does not have a valid filename.")
+        }
+        
+        var components = URLComponents(
+            url: baseURL.appendingPathComponent("files/upload"),
+            resolvingAgainstBaseURL: false
+        )
+        components?.queryItems = [
+            URLQueryItem(name: "path", value: "Downloads/\(filename)")
+        ]
+        guard let url = components?.url else { throw EbenAPIError.invalidURL }
+        
+        var uploadRequest = URLRequest(url: url, timeoutInterval: 300)
+        uploadRequest.httpMethod = "POST"
+        uploadRequest.cachePolicy = .reloadIgnoringLocalAndRemoteCacheData
+        uploadRequest.setValue(
+            UTType(filenameExtension: (filename as NSString).pathExtension)?.preferredMIMEType
+            ?? "application/octet-stream",
+            forHTTPHeaderField: "Content-Type"
+        )
+        
+        let (responseData, response) = try await URLSession.shared.upload(
+            for: uploadRequest,
+            from: data
+        )
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw EbenAPIError.invalidResponse
+        }
+        guard (200...299).contains(httpResponse.statusCode) else {
+            let message = String(data: responseData, encoding: .utf8)?
+                .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            throw EbenAPIError.httpStatus(httpResponse.statusCode, message)
+        }
+    }
 }
 
 // MARK: - Discovery
@@ -270,7 +322,7 @@ final class HostChecker: ObservableObject {
         HostStatus(address: "10.12.194.1")
     ]
     
-    private var connections: [UUID: NWConnection] = [:]
+    private var connections: [UUID: [CheckedService: NWConnection]] = [:]
     
     func checkAll() {
         for host in hosts {
@@ -281,12 +333,24 @@ final class HostChecker: ObservableObject {
     func checkHost(id: UUID) {
         guard let index = hosts.firstIndex(where: { $0.id == id }) else { return }
         let address = hosts[index].address
-        hosts[index].services = ServiceState(ssh: .checking, http: .checking, ranboo: .checking)
+        hosts[index].services = ServiceState(
+            ssh: .checking,
+            http: .checking,
+            ios: .checking,
+            ranboo: .checking
+        )
         
         checkTCP(hostID: id, address: address, port: 22, service: .ssh)
         checkTCP(hostID: id, address: address, port: 8000, service: .http)
         
         Task {
+            do {
+                try await EbenAPIClient(host: address).detectIfAvailableWithOS()
+                update(id: id, service: .ios, status: .online("HTTP service exists"))
+            } catch {
+                update(id: id, service: .ios, status: .offline(Self.describe(error)))
+            }
+            
             do {
                 try await EbenAPIClient(host: address).detectRanboo()
                 update(id: id, service: .ranboo, status: .online("Eben Desktop API"))
@@ -296,12 +360,12 @@ final class HostChecker: ObservableObject {
         }
     }
     
-    private enum CheckedService { case ssh, http, ranboo }
+    private enum CheckedService: Hashable { case ssh, http, ios, ranboo }
     
     private func checkTCP(hostID: UUID, address: String, port: UInt16, service: CheckedService) {
         guard let nwPort = NWEndpoint.Port(rawValue: port) else { return }
         let connection = NWConnection(host: NWEndpoint.Host(address), port: nwPort, using: .tcp)
-        connections[hostID] = connection
+        connections[hostID, default: [:]][service] = connection
         
         connection.stateUpdateHandler = { [weak self, weak connection] state in
             Task { @MainActor in
@@ -310,9 +374,11 @@ final class HostChecker: ObservableObject {
                 case .ready:
                     self.update(id: hostID, service: service, status: .online("TCP \(port)"))
                     connection?.cancel()
+                    self.connections[hostID]?[service] = nil
                 case .failed(let error):
                     self.update(id: hostID, service: service, status: .offline(error.localizedDescription))
                     connection?.cancel()
+                    self.connections[hostID]?[service] = nil
                 case .waiting(let error):
                     self.update(id: hostID, service: service, status: .offline(error.localizedDescription))
                 default:
@@ -328,6 +394,7 @@ final class HostChecker: ObservableObject {
         switch service {
         case .ssh: hosts[index].services.ssh = status
         case .http: hosts[index].services.http = status
+        case .ios: hosts[index].services.ios = status
         case .ranboo: hosts[index].services.ranboo = status
         }
     }
@@ -399,10 +466,29 @@ final class DeviceViewModel: ObservableObject {
             _ = try await api.command(path, method: "GET")
         }
     }
-
-    func runIronmouse(_ action: IronmouseAction) async {
-        await perform("\(action.title) completed") {
-            _ = try await api.command(action.path, method: "GET")
+    
+    func sendFile(data: Data, originalFilename: String) async {
+        await perform("Sent \(originalFilename) to ~/Downloads/\(originalFilename)") {
+            try await api.upload(data, originalFilename: originalFilename)
+        }
+    }
+    
+    func sendFile(at url: URL) async {
+        let hasSecurityScope = url.startAccessingSecurityScopedResource()
+        defer {
+            if hasSecurityScope { url.stopAccessingSecurityScopedResource() }
+        }
+        
+        await perform("Sent \(url.lastPathComponent) to ~/Downloads/\(url.lastPathComponent)") {
+            let resourceValues = try url.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey])
+            guard resourceValues.isRegularFile == true else {
+                throw EbenAPIError.api("The selected item is not a regular file.")
+            }
+            if let size = resourceValues.fileSize, size > 512 * 1024 * 1024 {
+                throw EbenAPIError.api("The selected file is larger than the 512 MB upload limit.")
+            }
+            let data = try Data(contentsOf: url, options: .mappedIfSafe)
+            try await api.upload(data, originalFilename: url.lastPathComponent)
         }
     }
     
@@ -431,36 +517,72 @@ final class DeviceViewModel: ObservableObject {
 
 struct ContentView: View {
     @StateObject private var checker = HostChecker()
+    @State private var selectedHostID: HostStatus.ID?
+    @State private var columnVisibility: NavigationSplitViewVisibility = .all
+    
+    private var selectedHost: HostStatus? {
+        checker.hosts.first { $0.id == selectedHostID }
+    }
     
     var body: some View {
-        NavigationStack {
-            List {
-                ForEach(checker.hosts) { host in
-                    NavigationLink {
-                        DeviceDetailView(host: host.address)
-                    } label: {
-                        HostRow(host: host)
-                    }
-                    .disabled(!host.services.ranboo.isOnline)
-                    .swipeActions {
-                        Button("Check") { checker.checkHost(id: host.id) }
+        NavigationSplitView(columnVisibility: $columnVisibility) {
+            List(selection: $selectedHostID) {
+                Section {
+                    Text("This app is not finalized and is meant for developers and platform engineers. This app may contain issues that prevent useful operation. For most uses, continue to use the Ranboo web UI.")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                    
+                    ForEach(checker.hosts) { host in
+                        NavigationLink(value: host.id) {
+                            HostRow(host: host)
+                        }
+                        .disabled(!host.services.ranboo.isOnline)
+                        .swipeActions {
+                            Button("Check") {
+                                checker.checkHost(id: host.id)
+                            }
                             .tint(.blue)
+                        }
+                        .contextMenu {
+                            Button {
+                                checker.checkHost(id: host.id)
+                            } label: {
+                                Label("Check Device", systemImage: "arrow.clockwise")
+                            }
+                        }
                     }
                 }
             }
             .navigationTitle("Eben Desktop")
+            .navigationSplitViewColumnWidth(min: 320, ideal: 390, max: 480)
             .toolbar {
                 ToolbarItem(placement: .primaryAction) {
                     Button {
                         checker.checkAll()
                     } label: {
-                        Label("Refresh", systemImage: "arrow.clockwise")
+                        Label("Refresh All", systemImage: "arrow.clockwise")
                     }
                 }
             }
-            .task {
-                checker.checkAll()
+        } detail: {
+            if let selectedHost {
+                DeviceDetailView(host: selectedHost.address)
+                    .id(selectedHost.id)
+            } else {
+                ContentUnavailableView(
+                    "Select a Device",
+                    systemImage: "desktopcomputer",
+                    description: Text("Choose an available Ranboo device from the sidebar.")
+                )
             }
+        }
+        .navigationSplitViewStyle(.balanced)
+        .task {
+            checker.checkAll()
+        }
+        .onReceive(checker.$hosts) { hosts in
+            guard selectedHostID == nil else { return }
+            selectedHostID = hosts.first(where: { $0.services.ranboo.isOnline })?.id
         }
     }
 }
@@ -473,10 +595,12 @@ struct HostRow: View {
             Text(host.address)
                 .font(.headline.monospaced())
             ServiceLine(name: "SSH", status: host.services.ssh)
-            ServiceLine(name: "HTTP", status: host.services.http)
+            ServiceLine(name: "Ranboo (TCP)", status: host.services.http)
+            ServiceLine(name: "Ranboo (iOS)", status: host.services.ios)
             ServiceLine(name: "Ranboo", status: host.services.ranboo)
         }
         .padding(.vertical, 4)
+        .contentShape(Rectangle())
     }
 }
 
@@ -487,11 +611,11 @@ struct ServiceLine: View {
     var body: some View {
         HStack(alignment: .firstTextBaseline) {
             Circle()
-                .fill(status.isOnline ? Color.green : status == .checking ? Color.orange : Color.red)
+                .fill(status.indicatorColor)
                 .frame(width: 8, height: 8)
             Text(name)
                 .font(.subheadline.weight(.semibold))
-                .frame(width: 58, alignment: .leading)
+                .frame(width: 113, alignment: .leading)
             Text(status.label)
                 .font(.caption)
                 .foregroundStyle(.secondary)
@@ -503,6 +627,9 @@ struct ServiceLine: View {
 struct DeviceDetailView: View {
     @StateObject private var model: DeviceViewModel
     @State private var pendingPowerAction: PowerAction?
+    @State private var isShowingFileImporter = false
+    @State private var selectedPhotoItem: PhotosPickerItem?
+    @Environment(\.openURL) private var openURL
     
     init(host: String) {
         _model = StateObject(wrappedValue: DeviceViewModel(host: host))
@@ -521,6 +648,11 @@ struct DeviceDetailView: View {
                 LabeledContent("Revision", value: display(model.info.revision))
                 LabeledContent("Uptime", value: formattedUptime(model.info.uptime))
                 LabeledContent("Kernel", value: display(model.info.kernelVersion))
+                Button("Go to Ranboo WebUI") {
+                    if let url = URL(string: "http://\(model.host):8000") {
+                        openURL(url)
+                    }
+                }
             }
             
             Section("Memory") {
@@ -553,6 +685,11 @@ struct DeviceDetailView: View {
                 Button("Stop VNC", role: .destructive) { Task { await model.runVNC("/vnc/stop") } }
                 Button("Stop noVNC", role: .destructive) { Task { await model.runVNC("/vnc/stop/novnc") } }
                 Button("Load Preview") { Task { await model.loadPreview() } }
+                Button("Launch noVNC") {
+                    if let url = URL(string: "http://\(model.host):6080/vnc.html") {
+                        openURL(url)
+                    }
+                }
                 
                 if let image = model.previewImage {
                     platformImage(image)
@@ -561,13 +698,21 @@ struct DeviceDetailView: View {
                         .clipShape(RoundedRectangle(cornerRadius: 8))
                 }
             }
-
-            Section("Ironmouse") {
-                ForEach(IronmouseAction.allCases) { action in
-                    Button(action.title, role: action.role) {
-                        Task { await model.runIronmouse(action) }
-                    }
+            
+            Section("Send File") {
+                PhotosPicker(selection: $selectedPhotoItem, matching: .any(of: [.images, .videos])) {
+                    Label("Choose from Photos Library", systemImage: "photo.on.rectangle")
                 }
+                
+                Button {
+                    isShowingFileImporter = true
+                } label: {
+                    Label("Choose from Files", systemImage: "folder")
+                }
+                
+                Text("The selected file will be uploaded to ~/Downloads using its original filename.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
             
             Section("Power") {
@@ -590,14 +735,36 @@ struct DeviceDetailView: View {
             }
         }
         .navigationTitle(model.info.hostname.isEmpty ? model.host : model.info.hostname)
+#if os(iOS)
+        .navigationBarTitleDisplayMode(.inline)
+#endif
         .toolbar {
-            Button {
-                Task { await model.refresh() }
-            } label: {
-                Label("Refresh", systemImage: "arrow.clockwise")
+            ToolbarItem(placement: .primaryAction) {
+                Button {
+                    Task { await model.refresh() }
+                } label: {
+                    Label("Refresh", systemImage: "arrow.clockwise")
+                }
             }
         }
         .task { await model.refresh() }
+        .fileImporter(
+            isPresented: $isShowingFileImporter,
+            allowedContentTypes: [.item],
+            allowsMultipleSelection: false
+        ) { result in
+            switch result {
+            case .success(let urls):
+                guard let url = urls.first else { return }
+                Task { await model.sendFile(at: url) }
+            case .failure(let error):
+                model.errorMessage = HostChecker.describe(error)
+            }
+        }
+        .onChange(of: selectedPhotoItem) { item in
+            guard let item else { return }
+            Task { await sendPhoto(item) }
+        }
         .confirmationDialog(
             pendingPowerAction.map { "\($0.title) \(model.host)?" } ?? "Power action",
             isPresented: Binding(
@@ -618,6 +785,37 @@ struct DeviceDetailView: View {
         }
     }
     
+    private func sendPhoto(_ item: PhotosPickerItem) async {
+        do {
+            guard let data = try await item.loadTransferable(type: Data.self) else {
+                throw EbenAPIError.api("The selected Photos item could not be loaded.")
+            }
+            guard data.count <= 512 * 1024 * 1024 else {
+                throw EbenAPIError.api("The selected file is larger than the 512 MB upload limit.")
+            }
+            
+            let filename = originalPhotoFilename(for: item)
+            ?? fallbackPhotoFilename(for: item)
+            await model.sendFile(data: data, originalFilename: filename)
+        } catch {
+            model.errorMessage = HostChecker.describe(error)
+        }
+        selectedPhotoItem = nil
+    }
+    
+    private func originalPhotoFilename(for item: PhotosPickerItem) -> String? {
+        guard let identifier = item.itemIdentifier else { return nil }
+        let result = PHAsset.fetchAssets(withLocalIdentifiers: [identifier], options: nil)
+        guard let asset = result.firstObject else { return nil }
+        return PHAssetResource.assetResources(for: asset).first?.originalFilename
+    }
+    
+    private func fallbackPhotoFilename(for item: PhotosPickerItem) -> String {
+        let type = item.supportedContentTypes.first
+        let extensionPart = type?.preferredFilenameExtension.map { ".\($0)" } ?? ""
+        return "Photo-\(UUID().uuidString)\(extensionPart)"
+    }
+    
     private func display(_ value: String) -> String {
         value.isEmpty ? "Unknown" : value
     }
@@ -630,7 +828,9 @@ struct DeviceDetailView: View {
         guard let secondsText = raw.split(separator: " ").first,
               let seconds = Double(secondsText) else { return display(raw) }
         let duration = Duration.seconds(seconds)
-        return duration.formatted(.units(allowed: [.days, .hours, .minutes], width: .abbreviated))
+        return duration.formatted(
+            .units(allowed: [.days, .hours, .minutes], width: .abbreviated)
+        )
     }
     
     @ViewBuilder
@@ -650,40 +850,6 @@ struct DeviceDetailView: View {
 #elseif os(macOS)
         return Image(nsImage: image)
 #endif
-    }
-}
-
-enum IronmouseAction: String, CaseIterable, Identifiable {
-    case enableAccessPoint
-    case disableAccessPoint
-    case enableEthernetSharing
-    case disableEthernetSharing
-
-    var id: String { rawValue }
-
-    var path: String {
-        switch self {
-        case .enableAccessPoint: return "/ironmouse/ap/enable"
-        case .disableAccessPoint: return "/ironmouse/ap/disable"
-        case .enableEthernetSharing: return "/ironmouse/eth/enable"
-        case .disableEthernetSharing: return "/ironmouse/eth/disable"
-        }
-    }
-
-    var title: String {
-        switch self {
-        case .enableAccessPoint: return "Enable Access Point"
-        case .disableAccessPoint: return "Disable Access Point"
-        case .enableEthernetSharing: return "Enable Ethernet Sharing"
-        case .disableEthernetSharing: return "Disable Ethernet Sharing"
-        }
-    }
-
-    var role: ButtonRole? {
-        switch self {
-        case .disableAccessPoint, .disableEthernetSharing: return .destructive
-        case .enableAccessPoint, .enableEthernetSharing: return nil
-        }
     }
 }
 
