@@ -14,6 +14,47 @@ typealias PlatformImage = NSImage
 #endif
 
 // MARK: - Models
+struct ClientInfo {
+    static let installID: String = {
+        if let existing = UserDefaults.standard.string(forKey: "InstallID") {
+            return existing
+        }
+        
+        let id = UUID().uuidString
+        UserDefaults.standard.set(id, forKey: "InstallID")
+        return id
+    }()
+    
+    static func headers() -> [String: String] {
+        var headers: [String: String] = [:]
+        
+        let version =
+        Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "unknown"
+        
+#if os(iOS)
+        let device = UIDevice.current
+        
+        headers["X-Client-Platform"] = "iOS"
+        headers["X-Client-Model"] = device.model
+        headers["X-Client-Name"] = device.name
+        headers["X-Client-OS"] = device.systemVersion
+        
+#elseif os(macOS)
+        let processInfo = ProcessInfo.processInfo
+        
+        headers["X-Client-Platform"] = "macOS"
+        headers["X-Client-Name"] = Host.current().localizedName ?? "Unknown"
+        headers["X-Client-OS"] =
+        processInfo.operatingSystemVersionString
+#endif
+        
+        headers["X-Client-App"] = "Ranboo SwiftUI"
+        headers["X-Client-Version"] = version
+        headers["X-Client-ID"] = installID
+        
+        return headers
+    }
+}
 
 struct ServiceState {
     enum Status: Equatable {
@@ -166,7 +207,17 @@ struct EbenAPIClient {
         
         let cleanPath = path.hasPrefix("/") ? String(path.dropFirst()) : path
         let url = baseURL.appendingPathComponent(cleanPath)
+        print("eben API request to fetch \(url) with method \(method) and timeout \(timeout)")
+        if String(method) == "GET" {
+            print("follow up not needed for \(method), as it is get and has no body")
+        } else {
+            print("follow up to \(url): \(body)")
+        }
         var request = URLRequest(url: url, timeoutInterval: timeout)
+        
+        for (key, value) in ClientInfo.headers() {
+            request.setValue(value, forHTTPHeaderField: key)
+        }
         request.httpMethod = method
         request.httpBody = body
         request.cachePolicy = .reloadIgnoringLocalAndRemoteCacheData
@@ -208,7 +259,9 @@ struct EbenAPIClient {
     }
     
     func detectIfAvailableWithOS() async throws {
+        print("going to see if OS Http stack will talk to ranboo on \(host)...")
         _ = try await request("/test", timeout: 5)
+        print("That worked for \(host)!")
     }
     
     func deviceInfo() async throws -> DeviceInfo {
@@ -243,6 +296,7 @@ struct EbenAPIClient {
         async let gpuText = text("/thermal/gpu")
         let (cpuValue, gpuValue) = try await (cpuText, gpuText)
         
+        // hope that it gives us a temp we can use as a double
         guard let cpu = Double(cpuValue), let gpu = Double(gpuValue) else {
             throw EbenAPIError.api("The server returned an invalid temperature value.")
         }
@@ -259,6 +313,7 @@ struct EbenAPIClient {
     }
     
     func vncStatus() async throws -> APIResponse {
+        print("get vncStatus triggered")
         let (data, _) = try await request("/vnc/status")
         return try JSONDecoder().decode(APIResponse.self, from: data)
     }
@@ -286,6 +341,7 @@ struct EbenAPIClient {
         components?.queryItems = [
             URLQueryItem(name: "path", value: "Downloads/\(filename)")
         ]
+        print("File will be saved on host to Downloads/\(filename)")
         guard let url = components?.url else { throw EbenAPIError.invalidURL }
         
         var uploadRequest = URLRequest(url: url, timeoutInterval: 300)
@@ -317,9 +373,9 @@ struct EbenAPIClient {
 @MainActor
 final class HostChecker: ObservableObject {
     @Published var hosts: [HostStatus] = [
-        HostStatus(address: "10.42.0.1"),
-        HostStatus(address: "10.42.1.1"),
-        HostStatus(address: "10.12.194.1")
+        HostStatus(address: "10.42.0.1"), // wifi ap
+        HostStatus(address: "10.42.1.1"), // eth share
+        HostStatus(address: "10.12.194.1") // usb gadget
     ]
     
     private var connections: [UUID: [CheckedService: NWConnection]] = [:]
@@ -528,7 +584,7 @@ struct ContentView: View {
         NavigationSplitView(columnVisibility: $columnVisibility) {
             List(selection: $selectedHostID) {
                 Section {
-                    Text("This app is not finalized and is meant for developers and platform engineers. This app may contain issues that prevent useful operation. For most uses, continue to use the Ranboo web UI.")
+                    Text("This app is not finalized and is meant for developers and platform engineers. This app contains options that when used improperly, may cause destruction of data. For most uses, users should continue to use the Ranboo web UI.")
                         .font(.callout)
                         .foregroundStyle(.secondary)
                     
@@ -553,7 +609,7 @@ struct ContentView: View {
                     }
                 }
             }
-            .navigationTitle("Eben Desktop")
+            .navigationTitle("Ranboo SwiftUI")
             .navigationSplitViewColumnWidth(min: 320, ideal: 390, max: 480)
             .toolbar {
                 ToolbarItem(placement: .primaryAction) {
@@ -581,8 +637,8 @@ struct ContentView: View {
             checker.checkAll()
         }
         .onReceive(checker.$hosts) { hosts in
-            guard selectedHostID == nil else { return }
-            selectedHostID = hosts.first(where: { $0.services.ranboo.isOnline })?.id
+            // guard selectedHostID == nil else { return }
+            // selectedHostID = hosts.first(where: { $0.services.ranboo.isOnline })?.id
         }
     }
 }
@@ -594,10 +650,19 @@ struct HostRow: View {
         VStack(alignment: .leading, spacing: 8) {
             Text(host.address)
                 .font(.headline.monospaced())
-            ServiceLine(name: "SSH", status: host.services.ssh)
-            ServiceLine(name: "Ranboo (TCP)", status: host.services.http)
-            ServiceLine(name: "Ranboo (iOS)", status: host.services.ios)
-            ServiceLine(name: "Ranboo", status: host.services.ranboo)
+            // Lightspeed Filter on iPadOS (most likely, but could be SentinelOne too) actually breaks local networking if you don't have some sort of WAN connection.
+            // basically, the TCP sockets still can be reached but it makes the iOS networking stack never send any data, thus causing timeouts and other weird issues
+            // If you try to go to the web UI in this state, it may appear that Ranboo might have crashed, as it will just say it's loading forever
+            // This app was actually initally just this, simply letting me see where in the chain were we failing at, but then realized that using the same Qt client across Windows, macOS, and Linux was bad
+            // as the Qt client is weird, it's ugly, and don't work on iPhones, iPads, and that $3500 headset
+            // ahem, back to networking
+            // This even causes weirdness in the Files app when syncing files to iCloud!
+            // this might be moved into a debug page you can access with an option on the device page but for now this is good enough to diagnose connection issues
+            // (who do I report this to? Apple? Lightspeed? SentinelOne? All?)
+            ServiceLine(name: "SSH", status: host.services.ssh) // misc, is the system a typical Linux system at all?
+            ServiceLine(name: "Ranboo (TCP)", status: host.services.http) // can we talk to the HTTP service on port 8000 using raw TCP?
+            ServiceLine(name: "Ranboo (iOS)", status: host.services.ios) // can iOS's networking stack reach port 8000 at all?
+            ServiceLine(name: "Ranboo", status: host.services.ranboo) // same as the last one but also checks specifically for ranboo, not
         }
         .padding(.vertical, 4)
         .contentShape(Rectangle())
@@ -672,6 +737,7 @@ struct DeviceDetailView: View {
             }
             
             Section("Thermals") {
+                // todo: once Ranboo get's support for getting the PMIC temps, include those too
                 temperatureRow("CPU", value: model.thermal.cpu)
                 temperatureRow("GPU", value: model.thermal.gpu)
             }
@@ -698,7 +764,8 @@ struct DeviceDetailView: View {
                         .clipShape(RoundedRectangle(cornerRadius: 8))
                 }
             }
-            
+
+            // For now I can't think of a good way to implement Ranboo -> Client file transfer so for now, only implement Client -> Ranboo
             Section("Send File") {
                 PhotosPicker(selection: $selectedPhotoItem, matching: .any(of: [.images, .videos])) {
                     Label("Choose from Photos Library", systemImage: "photo.on.rectangle")
@@ -723,6 +790,10 @@ struct DeviceDetailView: View {
                 }
             }
             
+            Section("Debug") {
+                Text("IP: \(model.host)\nisLoading: \(model.isLoading)")
+                    .monospaced()
+            }
             if let message = model.statusMessage {
                 Section { Text(message).foregroundStyle(.green) }
             }
@@ -790,6 +861,7 @@ struct DeviceDetailView: View {
             guard let data = try await item.loadTransferable(type: Data.self) else {
                 throw EbenAPIError.api("The selected Photos item could not be loaded.")
             }
+            // If you record in 4K60 on your iPhone this *may* be a problem
             guard data.count <= 512 * 1024 * 1024 else {
                 throw EbenAPIError.api("The selected file is larger than the 512 MB upload limit.")
             }
@@ -807,13 +879,17 @@ struct DeviceDetailView: View {
         guard let identifier = item.itemIdentifier else { return nil }
         let result = PHAsset.fetchAssets(withLocalIdentifiers: [identifier], options: nil)
         guard let asset = result.firstObject else { return nil }
-        return PHAssetResource.assetResources(for: asset).first?.originalFilename
+        let finalName = PHAssetResource.assetResources(for: asset).first?.originalFilename
+        print("Saving as \(finalName)")
+        return finalName
     }
     
     private func fallbackPhotoFilename(for item: PhotosPickerItem) -> String {
         let type = item.supportedContentTypes.first
         let extensionPart = type?.preferredFilenameExtension.map { ".\($0)" } ?? ""
-        return "Photo-\(UUID().uuidString)\(extensionPart)"
+        let finalName = "Photo-\(UUID().uuidString)\(extensionPart)"
+        print("Whoops, couldn't get original file name from Photos, so will save picture as \(finalName)")
+        return finalName
     }
     
     private func display(_ value: String) -> String {
@@ -836,6 +912,7 @@ struct DeviceDetailView: View {
     @ViewBuilder
     private func temperatureRow(_ label: String, value: Double?) -> some View {
         if let value {
+            // todo: we should probably convert this to farenhight if you have your temp unit in locale set to that
             LabeledContent(label, value: "\(format(value)) °C")
             Gauge(value: value, in: 0...100) { Text(label) }
                 .tint(value >= 80 ? .red : value >= 65 ? .orange : .green)
