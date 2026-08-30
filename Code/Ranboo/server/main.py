@@ -355,6 +355,19 @@ def gputemp(req):
     """
     return backend.gpu_temperature_c()
 
+@app.get("/thermal/pmic")
+def pmictemp(req):
+    """Return the pmic temperature in Celsius.
+
+    Request:
+    - `GET /thermal/pmic`
+    - No query parameters or body are required.
+
+    Response:
+    - `200 OK`
+    - Plain text body containing a floating-point temperature in Celsius.
+    """
+    return backend.pmic_temperature_c()
 
 @app.get("/thermal/cpu")
 def cputemp(req):
