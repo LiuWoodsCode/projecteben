@@ -271,6 +271,21 @@ class Api:
         match = re.search(r"temp=([\d.]+)", result.stdout)
         return float(match.group(1)) if match else None
 
+    def pmic_temperature_c(self) -> float | int | None:
+        """Return PMIC temperature in Celsius, or None if unavailable.
+
+        Expected output from vcgencmd:
+            temp=48.0'C
+        """
+        if self.dry_run:
+            return 0
+        result = self._run(["vcgencmd", "measure_temp", "pmic"])
+        if not result.ok:
+            return None
+
+        match = re.search(r"temp=([\d.]+)", result.stdout)
+        return float(match.group(1)) if match else None
+
     def voltage_v(self) -> float | int | None:
         """Return core voltage in volts, or None if unavailable.
 
