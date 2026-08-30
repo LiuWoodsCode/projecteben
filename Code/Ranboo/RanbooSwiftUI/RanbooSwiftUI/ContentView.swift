@@ -878,6 +878,50 @@ struct DeviceDetailView: View {
         } message: {
             Text("This command affects the remote device immediately.")
         }
+        
+        .confirmationDialog(
+            pendingIronmouseApAction.map { "\($0.title) Ironmouse AP?" } ?? "Ironmouse AP action",
+            isPresented: Binding(
+                get: { pendingIronmouseApAction != nil },
+                set: { if !$0 { pendingIronmouseApAction = nil } }
+            ),
+            titleVisibility: .visible
+        ) {
+            if let action = pendingIronmouseApAction {
+                Button(action.title, role: action.role) {
+                    pendingIronmouseApAction = nil
+                    Task { await model.power(action.path) }
+                }
+            }
+
+            Button("Cancel", role: .cancel) {
+                pendingIronmouseApAction = nil
+            }
+        } message: {
+            Text("This command affects the remote device immediately.")
+        }
+
+        .confirmationDialog(
+            pendingIronmouseEthAction.map { "\($0.title) Ironmouse Ethernet?" } ?? "Ironmouse Ethernet action",
+            isPresented: Binding(
+                get: { pendingIronmouseEthAction != nil },
+                set: { if !$0 { pendingIronmouseEthAction = nil } }
+            ),
+            titleVisibility: .visible
+        ) {
+            if let action = pendingIronmouseEthAction {
+                Button(action.title, role: action.role) {
+                    pendingIronmouseEthAction = nil
+                    Task { await model.power(action.path) }
+                }
+            }
+
+            Button("Cancel", role: .cancel) {
+                pendingIronmouseEthAction = nil
+            }
+        } message: {
+            Text("This command affects the remote device immediately.")
+        }
     }
     
     private func sendPhoto(_ item: PhotosPickerItem) async {
