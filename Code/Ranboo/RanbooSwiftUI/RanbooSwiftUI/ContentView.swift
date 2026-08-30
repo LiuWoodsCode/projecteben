@@ -210,9 +210,12 @@ struct EbenAPIClient {
         print("eben API request to fetch \(url) with method \(method) and timeout \(timeout)")
         if String(method) == "GET" {
             print("follow up not needed for \(method), as it is get and has no body")
+        } else if let body {
+            print("follow up to \(url): \(String(data: body, encoding: .utf8) ?? "<non-UTF8 body>")")
         } else {
-            print("follow up to \(url): \(body)")
+            print("follow up to \(url): <no body>")
         }
+        
         var request = URLRequest(url: url, timeoutInterval: timeout)
         
         for (key, value) in ClientInfo.headers() {
