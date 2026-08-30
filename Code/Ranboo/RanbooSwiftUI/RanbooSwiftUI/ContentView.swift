@@ -586,6 +586,8 @@ struct ContentView: View {
                 Section {
                     Text("This app is not finalized and is meant for developers and platform engineers. This app contains options that when used improperly, may cause destruction of data. For most uses, users should continue to use the Ranboo web UI.")
                         .font(.callout)
+                        .lineLimit(nil)
+                        .fixedSize(horizontal: false, vertical: true)
                         .foregroundStyle(.secondary)
                     
                     ForEach(checker.hosts) { host in
