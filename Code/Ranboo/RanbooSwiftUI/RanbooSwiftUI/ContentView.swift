@@ -133,6 +133,7 @@ struct MemoryInfo: Decodable {
 struct ThermalInfo {
     var cpu: Double?
     var gpu: Double?
+    var pmic: Double?
 }
 
 struct APIResponse: Decodable {
@@ -297,13 +298,14 @@ struct EbenAPIClient {
     func thermal() async throws -> ThermalInfo {
         async let cpuText = text("/thermal/cpu")
         async let gpuText = text("/thermal/gpu")
-        let (cpuValue, gpuValue) = try await (cpuText, gpuText)
+        async let pmicText = text("/thermal/pmic")
+        let (cpuValue, gpuValue, pmicValue) = try await (cpuText, gpuText, pmicText)
         
         // hope that it gives us a temp we can use as a double
-        guard let cpu = Double(cpuValue), let gpu = Double(gpuValue) else {
+        guard let cpu = Double(cpuValue), let gpu = Double(gpuValue), let pmic = Double(pmicValue) else {
             throw EbenAPIError.api("The server returned an invalid temperature value.")
         }
-        return ThermalInfo(cpu: cpu, gpu: gpu)
+        return ThermalInfo(cpu: cpu, gpu: gpu, pmic: pmic)
     }
     
     func command(_ path: String, method: String = "POST") async throws -> APIResponse {
@@ -745,9 +747,9 @@ struct DeviceDetailView: View {
             }
             
             Section("Thermals") {
-                // todo: once Ranboo get's support for getting the PMIC temps, include those too
                 temperatureRow("CPU", value: model.thermal.cpu)
                 temperatureRow("GPU", value: model.thermal.gpu)
+                temperatureRow("PMIC", value: model.thermal.pmic)
             }
             
             Section("Remote Desktop") {
