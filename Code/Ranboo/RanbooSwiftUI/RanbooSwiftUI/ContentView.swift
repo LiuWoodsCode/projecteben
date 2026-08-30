@@ -698,6 +698,8 @@ struct ServiceLine: View {
 struct DeviceDetailView: View {
     @StateObject private var model: DeviceViewModel
     @State private var pendingPowerAction: PowerAction?
+    @State private var pendingIronmouseApAction: IronmouseApAction?
+    @State private var pendingIronmouseEthAction: IronmouseEthAction?
     @State private var isShowingFileImporter = false
     @State private var selectedPhotoItem: PhotosPickerItem?
     @Environment(\.openURL) private var openURL
@@ -786,6 +788,22 @@ struct DeviceDetailView: View {
                 Text("The selected file will be uploaded to ~/Downloads using its original filename.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+            }
+            
+            Section("Ironmouse AP") {
+                ForEach(IronmouseApAction.allCases) { action in
+                    Button(action.title, role: action.role) {
+                        pendingIronmouseApAction = action
+                    }
+                }
+            }
+            
+            Section("Ironmouse Eth") {
+                ForEach(IronmouseEthAction.allCases) { action in
+                    Button(action.title, role: action.role) {
+                        pendingIronmouseEthAction = action
+                    }
+                }
             }
             
             Section("Power") {
@@ -955,6 +973,47 @@ enum PowerAction: String, CaseIterable, Identifiable {
         switch self {
         case .restart, .poweroff: return .destructive
         case .sleep, .hibernate: return nil
+        }
+    }
+}
+
+enum IronmouseApAction: String, CaseIterable, Identifiable {
+    case enable, disable
+    
+    var id: String { rawValue }
+    var path: String { "/ironmouse/ap/\(rawValue)" }
+    
+    var title: String {
+        switch self {
+        case .enable: return "Enable"
+        case .disable: return "Disable"
+        }
+    }
+    
+    var role: ButtonRole? {
+        switch self {
+        case .enable, .disable: return nil
+        }
+    }
+}
+
+
+enum IronmouseEthAction: String, CaseIterable, Identifiable {
+    case enable, disable
+    
+    var id: String { rawValue }
+    var path: String { "/ironmouse/eth/\(rawValue)" }
+    
+    var title: String {
+        switch self {
+        case .enable: return "Enable"
+        case .disable: return "Disable"
+        }
+    }
+    
+    var role: ButtonRole? {
+        switch self {
+        case .enable, .disable: return nil
         }
     }
 }
