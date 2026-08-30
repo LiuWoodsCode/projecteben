@@ -130,6 +130,23 @@ struct MemoryInfo: Decodable {
     }
 }
 
+struct DiskInfo: Decodable, Identifiable {
+    let device: String
+    let mountpoint: String
+    let fstype: String
+    let opts: String
+    let usage: DiskUsage
+
+    var id: String { "\(device)|\(mountpoint)" }
+}
+
+struct DiskUsage: Decodable {
+    let total: Double
+    let used: Double
+    let free: Double
+    let percent: Double
+}
+
 struct ThermalInfo {
     var cpu: Double?
     var gpu: Double?
@@ -293,6 +310,11 @@ struct EbenAPIClient {
             throw EbenAPIError.api(result.error ?? "Unable to read memory usage.")
         }
         return result
+    }
+
+    func disks() async throws -> [DiskInfo] {
+        let (data, _) = try await request("/device/resource/disk")
+        return try JSONDecoder().decode([DiskInfo].self, from: data)
     }
     
     func thermal() async throws -> ThermalInfo {
@@ -472,6 +494,7 @@ final class HostChecker: ObservableObject {
 final class DeviceViewModel: ObservableObject {
     @Published var info = DeviceInfo()
     @Published var memory: MemoryInfo?
+    @Published var disks: [DiskInfo] = []
     @Published var thermal = ThermalInfo()
     @Published var vnc = VNCStatusViewData()
     @Published var previewImage: PlatformImage?
@@ -494,14 +517,16 @@ final class DeviceViewModel: ObservableObject {
         do {
             async let infoRequest = api.deviceInfo()
             async let memoryRequest = api.memory()
+            async let disksRequest = api.disks()
             async let thermalRequest = api.thermal()
             async let vncRequest = api.vncStatus()
             
-            let (newInfo, newMemory, newThermal, newVNC) = try await (
-                infoRequest, memoryRequest, thermalRequest, vncRequest
+            let (newInfo, newMemory, newDisks, newThermal, newVNC) = try await (
+                infoRequest, memoryRequest, disksRequest, thermalRequest, vncRequest
             )
             info = newInfo
             memory = newMemory
+            disks = newDisks
             thermal = newThermal
             applyVNCStatus(newVNC)
         } catch {
@@ -745,6 +770,28 @@ struct DeviceDetailView: View {
                         .foregroundStyle(.secondary)
                 }
             }
+
+            Section("Disks") {
+                if model.disks.isEmpty {
+                    Text("No disk data")
+                        .foregroundStyle(.secondary)
+                } else {
+                    ForEach(model.disks) { disk in
+                        VStack(alignment: .leading, spacing: 8) {
+                            LabeledContent(disk.mountpoint, value: disk.device)
+                                .font(.headline)
+                            LabeledContent(
+                                "Used",
+                                value: "\(formatBytes(disk.usage.used)) / \(formatBytes(disk.usage.total))"
+                            )
+                            ProgressView(value: disk.usage.used, total: max(disk.usage.total, 1))
+                            LabeledContent("Free", value: formatBytes(disk.usage.free))
+                            LabeledContent("Filesystem", value: display(disk.fstype))
+                        }
+                        .padding(.vertical, 4)
+                    }
+                }
+            }
             
             Section("Thermals") {
                 temperatureRow("CPU", value: model.thermal.cpu)
@@ -968,6 +1015,13 @@ struct DeviceDetailView: View {
     
     private func format(_ value: Double) -> String {
         value.formatted(.number.precision(.fractionLength(0...1)))
+    }
+
+    private func formatBytes(_ value: Double) -> String {
+        ByteCountFormatter.string(
+            fromByteCount: Int64(value.rounded()),
+            countStyle: .file
+        )
     }
     
     private func formattedUptime(_ raw: String) -> String {
