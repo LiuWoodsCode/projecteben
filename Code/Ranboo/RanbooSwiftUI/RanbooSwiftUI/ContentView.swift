@@ -842,15 +842,15 @@ struct DeviceDetailView: View {
             Section("Ironmouse AP") {
                 ForEach(IronmouseApAction.allCases) { action in
                     Button(action.title, role: action.role) {
-                        pendingIronmouseApAction = action
+                        Task { await model.power(action.path) }
                     }
                 }
             }
-            
+
             Section("Ironmouse Eth") {
                 ForEach(IronmouseEthAction.allCases) { action in
                     Button(action.title, role: action.role) {
-                        pendingIronmouseEthAction = action
+                        Task { await model.power(action.path) }
                     }
                 }
             }
