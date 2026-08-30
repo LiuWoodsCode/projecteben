@@ -44,7 +44,7 @@ For `POST`, `PUT`, and `PATCH`, request body parsing behavior is:
 
 ### Resource usage
 
-- `GET /device/resource/disk` -> plain text Python list representation of disk objects
+- `GET /device/resource/disk` -> JSON array of mounted volumes and their usage
 - `GET /device/resource/mem` -> JSON memory summary
 
 `/device/resource/mem` success shape:

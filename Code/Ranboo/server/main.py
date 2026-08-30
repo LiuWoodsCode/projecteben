@@ -2,7 +2,7 @@ import sys
 from pathlib import Path
 from dataclasses import asdict
 
-from flaskish import App, BinaryResponse, TextResponse
+from flaskish import App, BinaryResponse, JsonResponse, TextResponse
 import backend as backend
 backend = backend.Api()
 app = App()
@@ -462,9 +462,10 @@ def disk(req):
 
     Response:
     - `200 OK`
-    - Plain text body representing the backend disk information structure.
+    - JSON array containing each mounted volume's device, mount point, filesystem,
+      mount options, and usage in bytes.
     """
-    return backend.disk_info()
+    return JsonResponse(backend.disk_info())
 
 
 @app.get("/device/resource/mem")
