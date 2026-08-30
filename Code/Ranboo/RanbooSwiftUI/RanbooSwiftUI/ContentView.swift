@@ -538,6 +538,7 @@ final class DeviceViewModel: ObservableObject {
         await perform("Sent \(url.lastPathComponent) to ~/Downloads/\(url.lastPathComponent)") {
             let resourceValues = try url.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey])
             guard resourceValues.isRegularFile == true else {
+                // this is either a directory or symblink
                 throw EbenAPIError.api("The selected item is not a regular file.")
             }
             if let size = resourceValues.fileSize, size > 512 * 1024 * 1024 {
