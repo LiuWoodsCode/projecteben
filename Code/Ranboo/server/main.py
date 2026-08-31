@@ -3,8 +3,8 @@ from pathlib import Path
 from dataclasses import asdict
 
 from flaskish import App, BinaryResponse, JsonResponse, TextResponse
-import backend as backend
-backend = backend.Api()
+import backend as backend_module
+backend = backend_module.Api()
 app = App()
 
 
@@ -619,6 +619,25 @@ def vncstatus(req):
         terminating signals for both tracked processes.
     """
     return backend.get_vnc_status()
+
+
+@app.post("/hyprland/restart")
+def hyprland_restart(req):
+    """Restart Hyprland and adopt the replacement instance signature.
+
+    Response:
+    - `200 OK` with the old process/signature details and new instance signature.
+    - `501 Not Implemented` when the current desktop is not Hyprland.
+    - `500 Internal Server Error` when Hyprland does not restart cleanly.
+    """
+    try:
+        result = backend.restart_hyprland()
+    except backend_module.HyprlandNotSupportedError as exc:
+        return {"ok": False, "error": str(exc)}, 501
+    except Exception as exc:
+        return {"ok": False, "error": str(exc)}, 500
+
+    return {"ok": True, **result}
 
 
 @app.get("/power/restart")

@@ -90,6 +90,30 @@ Typical success responses:
 {"ok": true, "stopped": true}
 ```
 
+### Hyprland control
+
+- `POST /hyprland/restart` -> kill the current user's Hyprland compositor,
+  wait five seconds for its supervised replacement, and adopt the replacement's
+  new instance signature
+
+Success response:
+
+```json
+{
+  "ok": true,
+  "old_pids": [1234],
+  "new_pid": 5678,
+  "old_signatures": ["old-signature"],
+  "instance_signature": "new-signature"
+}
+```
+
+Possible failures:
+
+- `501` when Hyprland is not the active compositor
+- `500` when the process cannot be killed, does not restart within five seconds,
+  or restarts without a new instance signature
+
 ### Time configuration
 
 - `POST /settings/time`

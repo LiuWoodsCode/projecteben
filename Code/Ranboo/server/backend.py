@@ -23,12 +23,17 @@ import re
 import shutil
 import signal
 import subprocess
+import time
 import webbrowser
 from pathlib import Path
 import psutil
 import stat as stat_module
 from datetime import datetime
 import shlex
+
+
+class HyprlandNotSupportedError(RuntimeError):
+    """Raised when a Hyprland-only operation is requested on another desktop."""
 
 @dataclass(frozen=True)
 class CommandResult:
@@ -105,6 +110,8 @@ class Api:
         self.dry_run = False
         self._wayvnc_proc: Optional[subprocess.Popen] = None
         self._novnc_proc: Optional[subprocess.Popen] = None
+        self._hyprland_instance_signature: Optional[str] = None
+        self._ignored_hyprland_signatures: set[str] = set()
 
     def _resolve_home_path(self, path_value: str) -> Path:
         """Resolve a user supplied path and enforce the home-directory boundary."""
@@ -540,8 +547,9 @@ class Api:
         return self._wayvnc_proc.pid
 
     @staticmethod
-    def _hyprland_running() -> bool:
-        """Return whether a Hyprland compositor is running for this user."""
+    def _hyprland_processes() -> list[psutil.Process]:
+        """Return the current user's Hyprland compositor processes."""
+        processes = []
         try:
             uid = os.getuid()
             for process in psutil.process_iter(["name", "cmdline", "uids"]):
@@ -553,28 +561,79 @@ class Api:
                     name = process.info.get("name") or ""
                     cmdline = process.info.get("cmdline") or []
                     if name.lower() == "hyprland" or any(
-                        Path(argument).name.lower() == "hyprland"
+                        argument and Path(argument).name.lower() == "hyprland"
                         for argument in cmdline
                     ):
-                        return True
+                        processes.append(process)
                 except (psutil.Error, OSError):
                     continue
         except (psutil.Error, OSError):
             pass
-        return False
+        return processes
+
+    def _hyprland_running(self) -> bool:
+        """Return whether a Hyprland compositor is running for this user."""
+        return bool(self._hyprland_processes())
 
     @staticmethod
-    def _hyprland_environment() -> dict[str, str]:
+    def _hyprland_runtime_dir(environment: Optional[dict[str, str]] = None) -> Path:
+        if environment is None:
+            environment = os.environ
+        runtime_dir = environment.get("XDG_RUNTIME_DIR", f"/run/user/{os.getuid()}")
+        return Path(runtime_dir) / "hypr"
+
+    @staticmethod
+    def _hyprland_process_signature(process: psutil.Process) -> Optional[str]:
+        """Read a Hyprland instance signature directly from a process."""
+        try:
+            return process.environ().get("HYPRLAND_INSTANCE_SIGNATURE") or None
+        except (psutil.Error, OSError):
+            return None
+
+    def _hyprland_signatures(self) -> list[str]:
+        """Return instance signatures currently present in Hyprland's runtime dir."""
+        hypr_dir = self._hyprland_runtime_dir()
+        try:
+            return sorted(path.name for path in hypr_dir.iterdir() if path.is_dir())
+        except (FileNotFoundError, PermissionError, OSError):
+            return []
+
+    def _current_hyprland_signature(self) -> Optional[str]:
+        """Resolve the active signature, preferring the instance we last selected."""
+        available = [
+            signature
+            for signature in self._hyprland_signatures()
+            if signature not in self._ignored_hyprland_signatures
+        ]
+        if self._hyprland_instance_signature in available:
+            return self._hyprland_instance_signature
+
+        for process in self._hyprland_processes():
+            signature = self._hyprland_process_signature(process)
+            if signature in available:
+                self._hyprland_instance_signature = signature
+                return signature
+
+        inherited = os.environ.get("HYPRLAND_INSTANCE_SIGNATURE")
+        if inherited in available:
+            self._hyprland_instance_signature = inherited
+            return inherited
+
+        if available:
+            self._hyprland_instance_signature = available[0]
+            return available[0]
+        return None
+
+    def _hyprland_environment(self) -> dict[str, str]:
         """Build the environment needed to attach wayvnc to Hyprland."""
         environment = os.environ.copy()
         runtime_dir = Path(environment.get("XDG_RUNTIME_DIR", f"/run/user/{os.getuid()}"))
         environment["XDG_RUNTIME_DIR"] = str(runtime_dir)
 
-        hypr_dir = runtime_dir / "hypr"
-        signatures = sorted(path.name for path in hypr_dir.iterdir() if path.is_dir())
-        if not signatures:
-            raise RuntimeError(f"No Hyprland instance found in {hypr_dir}")
-        environment["HYPRLAND_INSTANCE_SIGNATURE"] = signatures[0]
+        signature = self._current_hyprland_signature()
+        if signature is None:
+            raise RuntimeError(f"No Hyprland instance found in {runtime_dir / 'hypr'}")
+        environment["HYPRLAND_INSTANCE_SIGNATURE"] = signature
 
         displays = sorted(
             path.name
@@ -585,6 +644,91 @@ class Api:
             raise RuntimeError(f"No Wayland display found in {runtime_dir}")
         environment["WAYLAND_DISPLAY"] = displays[0]
         return environment
+
+    def restart_hyprland(self) -> dict:
+        """Kill Hyprland and select the replacement compositor's new signature."""
+        processes = self._hyprland_processes()
+        if not processes:
+            raise HyprlandNotSupportedError(
+                "Hyprland is not in use; compositor restart is not supported"
+            )
+
+        old_signatures = {
+            signature
+            for process in processes
+            if (signature := self._hyprland_process_signature(process)) is not None
+        }
+        if self._hyprland_instance_signature:
+            old_signatures.add(self._hyprland_instance_signature)
+
+        signatures_before_restart = set(self._hyprland_signatures())
+        if not old_signatures and len(signatures_before_restart) == 1:
+            old_signatures.update(signatures_before_restart)
+        ignored_signatures = signatures_before_restart | old_signatures
+
+        old_pids = [process.pid for process in processes]
+        for process in processes:
+            try:
+                process.kill()
+            except (psutil.NoSuchProcess, ProcessLookupError):
+                continue
+            except (psutil.Error, OSError) as exc:
+                raise RuntimeError(
+                    f"Unable to kill Hyprland process {process.pid}: {exc}"
+                ) from exc
+        self._ignored_hyprland_signatures.update(ignored_signatures)
+
+        # The desktop session is expected to supervise Hyprland and launch its
+        # replacement. Do not inspect runtime state until it has had five seconds.
+        time.sleep(5)
+
+        hypr_dir = self._hyprland_runtime_dir()
+        for signature in old_signatures:
+            try:
+                shutil.rmtree(hypr_dir / signature)
+            except FileNotFoundError:
+                pass
+            except OSError:
+                # Runtime cleanup is best-effort; signature exclusion below is
+                # the safety mechanism that prevents stale state from being used.
+                pass
+
+        replacement_processes = [
+            process
+            for process in self._hyprland_processes()
+            if process.pid not in old_pids
+        ]
+        if not replacement_processes:
+            raise RuntimeError("Hyprland did not restart after 5 seconds")
+
+        available_signatures = set(self._hyprland_signatures()) - ignored_signatures
+        new_signature = None
+        for process in replacement_processes:
+            signature = self._hyprland_process_signature(process)
+            if signature in available_signatures:
+                new_signature = signature
+                break
+
+        if new_signature is None:
+            new_signature = next(
+                (
+                    signature
+                    for signature in self._hyprland_signatures()
+                    if signature not in ignored_signatures
+                ),
+                None,
+            )
+
+        if new_signature is None:
+            raise RuntimeError("Hyprland restarted without a new instance signature")
+
+        self._hyprland_instance_signature = new_signature
+        return {
+            "old_pids": old_pids,
+            "new_pid": replacement_processes[0].pid,
+            "old_signatures": sorted(old_signatures),
+            "instance_signature": new_signature,
+        }
 
     def _start_wayvnc(self, websocket: bool = False) -> subprocess.Popen:
         """Start wayvnc, adding Hyprland's headless output setup when needed."""
