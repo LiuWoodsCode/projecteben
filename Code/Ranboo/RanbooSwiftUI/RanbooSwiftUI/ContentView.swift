@@ -554,36 +554,110 @@ final class DeviceViewModel: ObservableObject {
     
     let host: String
     private var api: EbenAPIClient { EbenAPIClient(host: host) }
+    private var uptimeSecondsAtRefresh: TimeInterval?
+    private var uptimeRefreshDate: Date?
     
     init(host: String) {
         self.host = host
     }
     
     func refresh() async {
+        guard !isLoading else { return }
         isLoading = true
         errorMessage = nil
         defer { isLoading = false }
-        
+
         do {
-            async let infoRequest = api.deviceInfo()
-            async let memoryRequest = api.memory()
-            async let disksRequest = api.disks()
-            async let thermalRequest = api.thermal()
-            async let fanRequest = api.fanInfo()
-            async let vncRequest = api.vncStatus()
-            
-            let (newInfo, newMemory, newDisks, newThermal, newFan, newVNC) = try await (
-                infoRequest, memoryRequest, disksRequest, thermalRequest, fanRequest, vncRequest
-            )
+            let newInfo = try await api.deviceInfo()
             info = newInfo
-            memory = newMemory
-            disks = newDisks
-            thermal = newThermal
-            fan = newFan
-            applyVNCStatus(newVNC)
+            setUptimeReference(from: newInfo.uptime)
         } catch {
             errorMessage = HostChecker.describe(error)
         }
+
+        await loadResources()
+        await loadThermal()
+
+        do {
+            fan = try await api.fanInfo()
+        } catch {
+            errorMessage = HostChecker.describe(error)
+        }
+
+        do {
+            applyVNCStatus(try await api.vncStatus())
+        } catch {
+            errorMessage = HostChecker.describe(error)
+        }
+    }
+
+    func refreshThermal() async {
+        guard !isLoading else { return }
+        await loadThermal()
+    }
+
+    func refreshResources() async {
+        guard !isLoading else { return }
+        await loadResources()
+    }
+
+    func monitor() async {
+        var nextThermalRefresh = Date().addingTimeInterval(2)
+        var nextResourceRefresh = Date().addingTimeInterval(10)
+
+        while !Task.isCancelled {
+            let nextRefresh = min(nextThermalRefresh, nextResourceRefresh)
+            do {
+                try await Task.sleep(
+                    for: .seconds(max(0, nextRefresh.timeIntervalSinceNow))
+                )
+            } catch {
+                return
+            }
+
+            if Date() >= nextThermalRefresh {
+                await refreshThermal()
+                repeat {
+                    nextThermalRefresh.addTimeInterval(2)
+                } while nextThermalRefresh <= Date()
+            }
+
+            if Date() >= nextResourceRefresh {
+                await refreshResources()
+                repeat {
+                    nextResourceRefresh.addTimeInterval(10)
+                } while nextResourceRefresh <= Date()
+            }
+        }
+    }
+
+    private func loadThermal() async {
+        do {
+            thermal = try await api.thermal()
+        } catch is CancellationError {
+            return
+        } catch {
+            errorMessage = HostChecker.describe(error)
+        }
+    }
+
+    private func loadResources() async {
+        do {
+            async let memoryRequest = api.memory()
+            async let disksRequest = api.disks()
+            let (newMemory, newDisks) = try await (memoryRequest, disksRequest)
+            memory = newMemory
+            disks = newDisks
+        } catch is CancellationError {
+            return
+        } catch {
+            errorMessage = HostChecker.describe(error)
+        }
+    }
+
+    func uptime(at date: Date) -> TimeInterval? {
+        guard let uptimeSecondsAtRefresh, let uptimeRefreshDate else { return nil }
+        return max(0, uptimeSecondsAtRefresh + date.timeIntervalSince(uptimeRefreshDate))
     }
     
     func runVNC(_ path: String) async {
@@ -669,6 +743,17 @@ final class DeviceViewModel: ObservableObject {
         if response.websocket == true { parts.append("WebSocket enabled") }
         if response.stopped == true { parts.append("Stopped") }
         vnc.description = parts.isEmpty ? "No tracked VNC process" : parts.joined(separator: ", ")
+    }
+
+    private func setUptimeReference(from rawValue: String) {
+        guard let secondsText = rawValue.split(separator: " ").first,
+              let seconds = TimeInterval(secondsText) else {
+            uptimeSecondsAtRefresh = nil
+            uptimeRefreshDate = nil
+            return
+        }
+        uptimeSecondsAtRefresh = seconds
+        uptimeRefreshDate = Date()
     }
 }
 
@@ -818,7 +903,12 @@ struct DeviceDetailView: View {
                 LabeledContent("Model", value: display(model.info.model))
                 LabeledContent("Serial", value: display(model.info.serial))
                 LabeledContent("Revision", value: display(model.info.revision))
-                LabeledContent("Uptime", value: formattedUptime(model.info.uptime))
+                TimelineView(.periodic(from: .now, by: 1)) { context in
+                    LabeledContent(
+                        "Uptime",
+                        value: formattedUptime(at: context.date)
+                    )
+                }
                 LabeledContent("Kernel", value: display(model.info.kernelVersion))
                 Button("Go to Ranboo WebUI") {
                     if let url = URL(string: "http://\(model.host):8000") {
@@ -965,7 +1055,10 @@ struct DeviceDetailView: View {
                 }
             }
         }
-        .task { await model.refresh() }
+        .task {
+            await model.refresh()
+            await model.monitor()
+        }
         .fileImporter(
             isPresented: $isShowingFileImporter,
             allowedContentTypes: [.item],
@@ -1098,13 +1191,24 @@ struct DeviceDetailView: View {
         )
     }
     
-    private func formattedUptime(_ raw: String) -> String {
-        guard let secondsText = raw.split(separator: " ").first,
-              let seconds = Double(secondsText) else { return display(raw) }
-        let duration = Duration.seconds(seconds)
-        return duration.formatted(
-            .units(allowed: [.days, .hours, .minutes], width: .abbreviated)
-        )
+    private func formattedUptime(at date: Date) -> String {
+        guard let uptime = model.uptime(at: date) else {
+            return display(model.info.uptime)
+        }
+
+        let totalSeconds = Int(uptime.rounded(.down))
+        let days = totalSeconds / 86_400
+        let hours = totalSeconds % 86_400 / 3_600
+        let minutes = totalSeconds % 3_600 / 60
+        let seconds = totalSeconds % 60
+
+        if days > 0 {
+            return "\(days)d \(hours)h \(minutes)m \(seconds)s"
+        }
+        if hours > 0 {
+            return "\(hours)h \(minutes)m \(seconds)s"
+        }
+        return "\(minutes)m \(seconds)s"
     }
     
     @ViewBuilder
