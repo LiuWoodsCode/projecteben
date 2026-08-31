@@ -153,6 +153,20 @@ struct ThermalInfo {
     var pmic: Double?
 }
 
+struct FanInfo: Decodable {
+    let ok: Bool
+    let control: String?
+    let governor: String?
+    let state: Int?
+    let maxState: Int?
+    let error: String?
+
+    enum CodingKeys: String, CodingKey {
+        case ok, control, governor, state, error
+        case maxState = "max_state"
+    }
+}
+
 struct APIResponse: Decodable {
     let ok: Bool?
     let error: String?
@@ -329,6 +343,40 @@ struct EbenAPIClient {
         }
         return ThermalInfo(cpu: cpu, gpu: gpu, pmic: pmic)
     }
+
+    func fanInfo() async throws -> FanInfo {
+        let (data, _) = try await request("/thermal/fan")
+        return try decodeFanInfo(from: data)
+    }
+
+    func setFanGovernor(enabled: Bool) async throws -> FanInfo {
+        let action = enabled ? "enable" : "disable"
+        let (data, _) = try await request("/thermal/fan/governor/\(action)", method: "POST")
+        let result = try decodeFanInfo(from: data)
+
+        // The governor command response does not include the fan state range.
+        // Fetch the complete snapshot so the controls remain internally consistent.
+        return try await fanInfo()
+    }
+
+    func setFanState(_ state: Int) async throws -> FanInfo {
+        let body = try JSONSerialization.data(withJSONObject: ["state": state])
+        let (data, _) = try await request(
+            "/thermal/fan/state",
+            method: "POST",
+            body: body,
+            contentType: "application/json"
+        )
+        return try decodeFanInfo(from: data)
+    }
+
+    private func decodeFanInfo(from data: Data) throws -> FanInfo {
+        let result = try JSONDecoder().decode(FanInfo.self, from: data)
+        guard result.ok else {
+            throw EbenAPIError.api(result.error ?? "Unable to read fan controls.")
+        }
+        return result
+    }
     
     func command(_ path: String, method: String = "POST") async throws -> APIResponse {
         let (data, _) = try await request(path, method: method)
@@ -496,9 +544,11 @@ final class DeviceViewModel: ObservableObject {
     @Published var memory: MemoryInfo?
     @Published var disks: [DiskInfo] = []
     @Published var thermal = ThermalInfo()
+    @Published var fan: FanInfo?
     @Published var vnc = VNCStatusViewData()
     @Published var previewImage: PlatformImage?
     @Published var isLoading = false
+    @Published var isUpdatingFan = false
     @Published var statusMessage: String?
     @Published var errorMessage: String?
     
@@ -519,15 +569,17 @@ final class DeviceViewModel: ObservableObject {
             async let memoryRequest = api.memory()
             async let disksRequest = api.disks()
             async let thermalRequest = api.thermal()
+            async let fanRequest = api.fanInfo()
             async let vncRequest = api.vncStatus()
             
-            let (newInfo, newMemory, newDisks, newThermal, newVNC) = try await (
-                infoRequest, memoryRequest, disksRequest, thermalRequest, vncRequest
+            let (newInfo, newMemory, newDisks, newThermal, newFan, newVNC) = try await (
+                infoRequest, memoryRequest, disksRequest, thermalRequest, fanRequest, vncRequest
             )
             info = newInfo
             memory = newMemory
             disks = newDisks
             thermal = newThermal
+            fan = newFan
             applyVNCStatus(newVNC)
         } catch {
             errorMessage = HostChecker.describe(error)
@@ -538,6 +590,26 @@ final class DeviceViewModel: ObservableObject {
         await perform("VNC command completed") {
             let response = try await api.command(path)
             applyVNCStatus(response)
+        }
+    }
+
+    func setFanGovernor(enabled: Bool) async {
+        guard !isUpdatingFan else { return }
+        isUpdatingFan = true
+        defer { isUpdatingFan = false }
+
+        await perform("Fan governor \(enabled ? "enabled" : "disabled")") {
+            fan = try await api.setFanGovernor(enabled: enabled)
+        }
+    }
+
+    func setFanState(_ state: Int) async {
+        guard !isUpdatingFan, fan?.control == "userspace", fan?.state != state else { return }
+        isUpdatingFan = true
+        defer { isUpdatingFan = false }
+
+        await perform("Fan state set to \(state)") {
+            fan = try await api.setFanState(state)
         }
     }
     
@@ -798,6 +870,8 @@ struct DeviceDetailView: View {
                 temperatureRow("GPU", value: model.thermal.gpu)
                 temperatureRow("PMIC", value: model.thermal.pmic)
             }
+
+            FanControlsView(model: model)
             
             Section("Remote Desktop") {
                 Text(model.vnc.description)
@@ -1051,6 +1125,95 @@ struct DeviceDetailView: View {
 #elseif os(macOS)
         return Image(nsImage: image)
 #endif
+    }
+}
+
+struct FanControlsView: View {
+    @ObservedObject var model: DeviceViewModel
+    @State private var selectedState = 0.0
+    @State private var isEditingSlider = false
+
+    private var isGovernorEnabled: Bool {
+        model.fan?.governor == "enabled"
+    }
+
+    private var canControlManually: Bool {
+        model.fan?.control == "userspace" && !model.isUpdatingFan
+    }
+
+    var body: some View {
+        Section("Fan") {
+            if let fan = model.fan {
+                Toggle(
+                    "Automatic governor",
+                    isOn: Binding(
+                        get: { isGovernorEnabled },
+                        set: { enabled in
+                            Task { await model.setFanGovernor(enabled: enabled) }
+                        }
+                    )
+                )
+                .disabled(model.isUpdatingFan || fan.governor == nil)
+
+                LabeledContent("Control", value: controlDescription(fan.control))
+                LabeledContent("Current state", value: stateDescription(fan))
+
+                if let maxState = fan.maxState, maxState > 0 {
+                    VStack(alignment: .leading, spacing: 8) {
+                        LabeledContent(
+                            "Manual state",
+                            value: "\(Int(selectedState.rounded())) / \(maxState)"
+                        )
+                        Slider(
+                            value: $selectedState,
+                            in: 0...Double(maxState),
+                            step: 1
+                        ) { editing in
+                            isEditingSlider = editing
+                            if !editing {
+                                let state = Int(selectedState.rounded())
+                                Task { await model.setFanState(state) }
+                            }
+                        }
+                        .disabled(!canControlManually)
+                    }
+
+                    if isGovernorEnabled {
+                        Text("Disable the automatic governor to set the fan state manually.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                } else {
+                    Text("The server did not report a usable fan state range.")
+                        .foregroundStyle(.secondary)
+                }
+
+                if model.isUpdatingFan {
+                    ProgressView("Updating fan...")
+                }
+            } else {
+                Text("No fan data")
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .onChange(of: model.fan?.state, initial: true) { _, state in
+            guard !isEditingSlider, let state else { return }
+            selectedState = Double(state)
+        }
+    }
+
+    private func controlDescription(_ control: String?) -> String {
+        switch control {
+        case "governor": return "Automatic governor"
+        case "userspace": return "Manual"
+        default: return "Unknown"
+        }
+    }
+
+    private func stateDescription(_ fan: FanInfo) -> String {
+        guard let state = fan.state else { return "Unknown" }
+        guard let maxState = fan.maxState else { return "\(state)" }
+        return "\(state) / \(maxState)"
     }
 }
 
