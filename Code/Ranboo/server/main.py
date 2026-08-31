@@ -846,7 +846,270 @@ def screenshot(req):
 
     return BinaryResponse(result["data"], content_type=result["content_type"])
 
+# ============================================================
+# Fan control
+# ============================================================
 
+@app.get("/thermal/fan")
+def fan_info(req):
+    """Return the current fan control status.
+
+    Response:
+        {
+            "ok": true,
+            "control": "governor" | "userspace" | null,
+            "governor": "enabled" | "disabled" | null,
+            "state": <int> | null,
+            "max_state": <int> | null
+        }
+    """
+    try:
+        return {
+            "ok": True,
+            "control": backend.get_fan_control(),
+            "governor": backend.get_fan_governor(),
+            "state": backend.get_fan_state(),
+            "max_state": backend.get_fan_max_state(),
+        }
+    except FileNotFoundError as exc:
+        return {
+            "ok": False,
+            "error": str(exc),
+        }, 404
+    except OSError as exc:
+        return {
+            "ok": False,
+            "error": str(exc),
+        }, 500
+
+
+@app.get("/thermal/fan/control")
+def fan_control(req):
+    """Return who currently controls the fan.
+
+    Response:
+        {
+            "ok": true,
+            "control": "governor" | "userspace" | null
+        }
+    """
+    try:
+        control = backend.get_fan_control()
+
+        return {
+            "ok": control is not None,
+            "control": control,
+        }
+    except OSError as exc:
+        return {
+            "ok": False,
+            "error": str(exc),
+        }, 500
+
+
+@app.get("/thermal/fan/governor")
+def fan_governor(req):
+    """Return the current thermal governor mode."""
+    try:
+        mode = backend.get_fan_governor()
+
+        return {
+            "ok": mode is not None,
+            "governor": mode,
+        }
+    except OSError as exc:
+        return {
+            "ok": False,
+            "error": str(exc),
+        }, 500
+
+
+@app.post("/thermal/fan/governor/enable")
+def fan_governor_enable(req):
+    """Enable automatic kernel thermal/fan control."""
+    try:
+        success = backend.enable_fan_governor()
+
+        if not success:
+            return {
+                "ok": False,
+                "error": "Governor did not enter enabled state",
+            }, 500
+
+        return {
+            "ok": True,
+            "governor": backend.get_fan_governor(),
+            "control": backend.get_fan_control(),
+        }
+
+    except FileNotFoundError as exc:
+        return {
+            "ok": False,
+            "error": str(exc),
+        }, 404
+
+    except PermissionError as exc:
+        return {
+            "ok": False,
+            "error": str(exc),
+        }, 403
+
+    except OSError as exc:
+        return {
+            "ok": False,
+            "error": str(exc),
+        }, 500
+
+
+@app.post("/thermal/fan/governor/disable")
+def fan_governor_disable(req):
+    """Disable automatic thermal control and give userspace fan control."""
+    try:
+        success = backend.disable_fan_governor()
+
+        if not success:
+            return {
+                "ok": False,
+                "error": "Governor did not enter disabled state",
+            }, 500
+
+        return {
+            "ok": True,
+            "governor": backend.get_fan_governor(),
+            "control": backend.get_fan_control(),
+        }
+
+    except FileNotFoundError as exc:
+        return {
+            "ok": False,
+            "error": str(exc),
+        }, 404
+
+    except PermissionError as exc:
+        return {
+            "ok": False,
+            "error": str(exc),
+        }, 403
+
+    except OSError as exc:
+        return {
+            "ok": False,
+            "error": str(exc),
+        }, 500
+
+
+@app.get("/thermal/fan/state")
+def fan_state(req):
+    """Return the current and maximum fan cooling states."""
+    try:
+        return {
+            "ok": True,
+            "state": backend.get_fan_state(),
+            "max_state": backend.get_fan_max_state(),
+            "control": backend.get_fan_control(),
+        }
+
+    except FileNotFoundError as exc:
+        return {
+            "ok": False,
+            "error": str(exc),
+        }, 404
+
+    except OSError as exc:
+        return {
+            "ok": False,
+            "error": str(exc),
+        }, 500
+
+
+@app.post("/thermal/fan/state")
+def fan_state_set(req):
+    """Set the fan cooling state.
+
+    Request:
+        POST /thermal/fan/state
+
+        JSON:
+            {"state": 4}
+
+        Alternatively:
+            /thermal/fan/state?state=4
+
+    The governor must be disabled before manually setting the fan.
+    """
+    payload = req.json if isinstance(req.json, dict) else {}
+
+    state_value = (
+        payload.get("state")
+        if "state" in payload
+        else req.query.get("state")
+    )
+
+    if state_value is None:
+        return {
+            "ok": False,
+            "error": "Missing fan state",
+        }, 400
+
+    try:
+        state = int(state_value)
+    except (TypeError, ValueError):
+        return {
+            "ok": False,
+            "error": "Fan state must be an integer",
+        }, 400
+
+    try:
+        control = backend.get_fan_control()
+
+        if control != "userspace":
+            return {
+                "ok": False,
+                "error": "Fan is controlled by the thermal governor",
+                "control": control,
+            }, 409
+
+        success = backend.set_fan_state(state)
+
+        if not success:
+            return {
+                "ok": False,
+                "error": "Fan did not enter requested state",
+                "requested_state": state,
+                "actual_state": backend.get_fan_state(),
+            }, 500
+
+        return {
+            "ok": True,
+            "state": backend.get_fan_state(),
+            "max_state": backend.get_fan_max_state(),
+            "control": backend.get_fan_control(),
+        }
+
+    except ValueError as exc:
+        return {
+            "ok": False,
+            "error": str(exc),
+        }, 400
+
+    except FileNotFoundError as exc:
+        return {
+            "ok": False,
+            "error": str(exc),
+        }, 404
+
+    except PermissionError as exc:
+        return {
+            "ok": False,
+            "error": str(exc),
+        }, 403
+
+    except OSError as exc:
+        return {
+            "ok": False,
+            "error": str(exc),
+        }, 500
+    
 @app.get("/test")
 def test(req):
     """Return a plain-text test response.

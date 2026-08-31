@@ -855,3 +855,175 @@ class Api:
     def disable_eth_share(self) -> CommandResult:
         """Disable the ethernet sharing"""
         return self._run(["sudo", "rpi-hotspot", "disable-eth-share"])
+
+    THERMAL_ZONE_MODE_PATH = Path("/sys/class/thermal/thermal_zone0/mode")
+    THERMAL_CLASS_PATH = Path("/sys/class/thermal")
+
+    def _sudo_sysfs_write(self, path: Path, value: str) -> None:
+        """Write a value to sysfs using sudo + tee.
+
+        Shell redirection such as:
+            sudo echo VALUE > FILE
+
+        does not work because the shell performing the redirection is
+        still unprivileged. `sudo tee` performs the actual open/write
+        as root.
+        """
+        result = subprocess.run(
+            ["sudo", "-n", "tee", str(path)],
+            input=f"{value}\n",
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            check=False,
+        )
+
+        if result.returncode != 0:
+            raise PermissionError(
+                result.stderr.strip()
+                or f"Unable to write {value!r} to {path}"
+            )
+
+    def set_fan_governor(self, enabled: bool) -> bool:
+        """Enable or disable kernel thermal control."""
+        mode = "enabled" if enabled else "disabled"
+
+        if self.dry_run:
+            print(f"Would set thermal governor to {mode}")
+            return True
+
+        if not self.THERMAL_ZONE_MODE_PATH.exists():
+            raise FileNotFoundError(
+                f"Thermal governor interface not found: "
+                f"{self.THERMAL_ZONE_MODE_PATH}"
+            )
+
+        self._sudo_sysfs_write(
+            self.THERMAL_ZONE_MODE_PATH,
+            mode,
+        )
+
+        actual = self.THERMAL_ZONE_MODE_PATH.read_text(
+            encoding="utf-8"
+        ).strip()
+
+        return actual == mode
+
+    def enable_fan_governor(self) -> bool:
+        """Give fan control back to the kernel thermal governor."""
+        return self.set_fan_governor(True)
+
+    def disable_fan_governor(self) -> bool:
+        """Disable the governor so userspace can control the fan."""
+        return self.set_fan_governor(False)
+
+    def get_fan_governor(self) -> str | None:
+        """Return the thermal governor state."""
+        if self.dry_run:
+            return "enabled"
+
+        try:
+            return self.THERMAL_ZONE_MODE_PATH.read_text(
+                encoding="utf-8"
+            ).strip()
+        except (FileNotFoundError, OSError):
+            return None
+
+    def get_fan_control(self) -> str | None:
+        """Return whether the governor or userspace controls the fan."""
+        mode = self.get_fan_governor()
+
+        if mode == "enabled":
+            return "governor"
+
+        if mode == "disabled":
+            return "userspace"
+
+        return None
+
+    def _find_fan_cooling_device(self) -> Path:
+        """Locate the fan cooling device exposed through sysfs."""
+        for device in sorted(
+            self.THERMAL_CLASS_PATH.glob("cooling_device*")
+        ):
+            try:
+                device_type = (
+                    (device / "type")
+                    .read_text(encoding="utf-8")
+                    .strip()
+                    .lower()
+                )
+            except OSError:
+                continue
+
+            if "fan" in device_type:
+                return device
+
+        raise FileNotFoundError("No fan cooling device found")
+
+    def get_fan_state(self) -> int | None:
+        """Return the current fan cooling state."""
+        if self.dry_run:
+            return 0
+
+        device = self._find_fan_cooling_device()
+
+        try:
+            return int(
+                (device / "cur_state")
+                .read_text(encoding="utf-8")
+                .strip()
+            )
+        except (FileNotFoundError, ValueError, OSError):
+            return None
+
+    def get_fan_max_state(self) -> int | None:
+        """Return the maximum supported fan cooling state."""
+        if self.dry_run:
+            return 4
+
+        device = self._find_fan_cooling_device()
+
+        try:
+            return int(
+                (device / "max_state")
+                .read_text(encoding="utf-8")
+                .strip()
+            )
+        except (FileNotFoundError, ValueError, OSError):
+            return None
+
+    def set_fan_state(self, state: int) -> bool:
+        """Set the fan cooling state using a privileged sysfs write."""
+        if not isinstance(state, int):
+            raise TypeError("Fan state must be an integer")
+
+        if self.dry_run:
+            print(f"Would set fan state to {state}")
+            return True
+
+        device = self._find_fan_cooling_device()
+
+        cur_state = device / "cur_state"
+        max_state_path = device / "max_state"
+
+        max_state = int(
+            max_state_path.read_text(
+                encoding="utf-8"
+            ).strip()
+        )
+
+        if not 0 <= state <= max_state:
+            raise ValueError(
+                f"Fan state must be between 0 and {max_state}"
+            )
+
+        self._sudo_sysfs_write(cur_state, str(state))
+
+        actual = int(
+            cur_state.read_text(
+                encoding="utf-8"
+            ).strip()
+        )
+
+        return actual == state
