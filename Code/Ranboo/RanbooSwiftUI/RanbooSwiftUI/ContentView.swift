@@ -602,7 +602,7 @@ final class DeviceViewModel: ObservableObject {
     }
 
     func monitor() async {
-        var nextThermalRefresh = Date().addingTimeInterval(1)
+        var nextThermalRefresh = Date().addingTimeInterval(5)
         var nextResourceRefresh = Date().addingTimeInterval(10)
 
         while !Task.isCancelled {
@@ -618,7 +618,7 @@ final class DeviceViewModel: ObservableObject {
             if Date() >= nextThermalRefresh {
                 await refreshThermal()
                 repeat {
-                    nextThermalRefresh.addTimeInterval(1)
+                    nextThermalRefresh.addTimeInterval(5)
                 } while nextThermalRefresh <= Date()
             }
 
@@ -696,6 +696,12 @@ final class DeviceViewModel: ObservableObject {
     func power(_ path: String) async {
         await perform("Power command sent") {
             _ = try await api.command(path, method: "GET")
+        }
+    }
+
+    func restartHyprland() async {
+        await perform("Hyprland restarted") {
+            _ = try await api.command("/hyprland/restart")
         }
     }
     
@@ -882,6 +888,7 @@ struct ServiceLine: View {
 struct DeviceDetailView: View {
     @StateObject private var model: DeviceViewModel
     @State private var pendingPowerAction: PowerAction?
+    @State private var isConfirmingHyprlandRestart = false
     @State private var pendingIronmouseApAction: IronmouseApAction?
     @State private var pendingIronmouseEthAction: IronmouseEthAction?
     @State private var isShowingFileImporter = false
@@ -966,6 +973,9 @@ struct DeviceDetailView: View {
             Section("Remote Desktop") {
                 Text(model.vnc.description)
                     .foregroundStyle(.secondary)
+                Button("Restart Hyprland", role: .destructive) {
+                    isConfirmingHyprlandRestart = true
+                }
                 Button("Start VNC") { Task { await model.runVNC("/vnc/start") } }
                 Button("Start VNC with WebSocket") { Task { await model.runVNC("/vnc/start/websocket") } }
                 Button("Start noVNC") { Task { await model.runVNC("/vnc/start/novnc") } }
@@ -1093,6 +1103,19 @@ struct DeviceDetailView: View {
             Button("Cancel", role: .cancel) { pendingPowerAction = nil }
         } message: {
             Text("This command affects the remote device immediately.")
+        }
+
+        .confirmationDialog(
+            "Restart Hyprland on \(model.host)?",
+            isPresented: $isConfirmingHyprlandRestart,
+            titleVisibility: .visible
+        ) {
+            Button("Restart Hyprland", role: .destructive) {
+                Task { await model.restartHyprland() }
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("The desktop compositor and active remote desktop session may disconnect briefly.")
         }
         
         .confirmationDialog(
