@@ -1038,7 +1038,7 @@ struct DeviceDetailView: View {
         if let value {
             // todo: we should probably convert this to farenhight if you have your temp unit in locale set to that
             LabeledContent(label, value: "\(format(value)) °C")
-            Gauge(value: value, in: 0...100) { Text(label) }
+            Gauge(value: value, in: 0...100) { EmptyView() }
                 .tint(value >= 80 ? .red : value >= 65 ? .orange : .green)
         } else {
             LabeledContent(label, value: "Unknown")
