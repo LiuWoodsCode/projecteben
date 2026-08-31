@@ -639,6 +639,21 @@ def hyprland_restart(req):
 
     return {"ok": True, **result}
 
+@app.get("/power/restart")
+def restart(req):
+    """Restart the system.
+
+    Request:
+    - `GET /power/restart`
+    - No query parameters or body are required.
+
+    Response:
+    - `200 OK`
+    - JSON body: `{"ok": true}`
+    """
+    backend.logout()
+    return {"ok": True}
+
 
 @app.get("/power/restart")
 def restart(req):

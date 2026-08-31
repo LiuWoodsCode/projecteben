@@ -1171,3 +1171,14 @@ class Api:
         )
 
         return actual == state
+
+    def logout(self):
+        session_id = os.environ.get("XDG_SESSION_ID")
+
+        if not session_id:
+            raise RuntimeError("Could not determine the current session")
+
+        subprocess.run(
+            ["loginctl", "terminate-session", session_id],
+            check=True
+        )
