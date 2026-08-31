@@ -602,7 +602,7 @@ final class DeviceViewModel: ObservableObject {
     }
 
     func monitor() async {
-        var nextThermalRefresh = Date().addingTimeInterval(2)
+        var nextThermalRefresh = Date().addingTimeInterval(1)
         var nextResourceRefresh = Date().addingTimeInterval(10)
 
         while !Task.isCancelled {
@@ -618,7 +618,7 @@ final class DeviceViewModel: ObservableObject {
             if Date() >= nextThermalRefresh {
                 await refreshThermal()
                 repeat {
-                    nextThermalRefresh.addTimeInterval(2)
+                    nextThermalRefresh.addTimeInterval(1)
                 } while nextThermalRefresh <= Date()
             }
 
