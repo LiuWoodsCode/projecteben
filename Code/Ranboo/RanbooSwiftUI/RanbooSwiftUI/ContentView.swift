@@ -15,6 +15,8 @@ typealias PlatformImage = NSImage
 
 // MARK: - Models
 struct ClientInfo {
+    // Provide headers we attach to every request we make
+    // this allows the eben device to know who this client is
     static let installID: String = {
         if let existing = UserDefaults.standard.string(forKey: "InstallID") {
             return existing
@@ -136,7 +138,7 @@ struct DiskInfo: Decodable, Identifiable {
     let fstype: String
     let opts: String
     let usage: DiskUsage
-
+    
     var id: String { "\(device)|\(mountpoint)" }
 }
 
@@ -160,7 +162,7 @@ struct FanInfo: Decodable {
     let state: Int?
     let maxState: Int?
     let error: String?
-
+    
     enum CodingKeys: String, CodingKey {
         case ok, control, governor, state, error
         case maxState = "max_state"
@@ -294,6 +296,7 @@ struct EbenAPIClient {
     }
     
     func detectIfAvailableWithOS() async throws {
+        // there might be a better way to do this but for now this works
         print("going to see if OS Http stack will talk to ranboo on \(host)...")
         _ = try await request("/test", timeout: 5)
         print("That worked for \(host)!")
@@ -325,13 +328,19 @@ struct EbenAPIClient {
         }
         return result
     }
-
+    
     func disks() async throws -> [DiskInfo] {
         let (data, _) = try await request("/device/resource/disk")
         return try JSONDecoder().decode([DiskInfo].self, from: data)
     }
     
     func thermal() async throws -> ThermalInfo {
+        // on Eben devices (Raspberry Pi) here are what these corrospond to
+        // cpu is the temperature that is reported by the kernel in sysfs
+        // gpu is the temperature reported by a run of `vcgencmd measure_temp`
+        // pretty sure that these 2 temps mean the same thing as all RPis use a System on Chip (SOC) design made by Broadcom (ARM processor, VideoCore GPU, etc in one chip)
+        // pmic is the temperature reported by a run of `vcgencmd measure_temp pmic` and is the temp of the power management IC (?)
+        // todo: pmic probably will fail on anything not a Pi 5 or later, this needs client + server handling
         async let cpuText = text("/thermal/cpu")
         async let gpuText = text("/thermal/gpu")
         async let pmicText = text("/thermal/pmic")
@@ -343,22 +352,22 @@ struct EbenAPIClient {
         }
         return ThermalInfo(cpu: cpu, gpu: gpu, pmic: pmic)
     }
-
+    
     func fanInfo() async throws -> FanInfo {
         let (data, _) = try await request("/thermal/fan")
         return try decodeFanInfo(from: data)
     }
-
+    
     func setFanGovernor(enabled: Bool) async throws -> FanInfo {
         let action = enabled ? "enable" : "disable"
         let (data, _) = try await request("/thermal/fan/governor/\(action)", method: "POST")
         let result = try decodeFanInfo(from: data)
-
+        
         // The governor command response does not include the fan state range.
         // Fetch the complete snapshot so the controls remain internally consistent.
         return try await fanInfo()
     }
-
+    
     func setFanState(_ state: Int) async throws -> FanInfo {
         let body = try JSONSerialization.data(withJSONObject: ["state": state])
         let (data, _) = try await request(
@@ -369,7 +378,7 @@ struct EbenAPIClient {
         )
         return try decodeFanInfo(from: data)
     }
-
+    
     private func decodeFanInfo(from data: Data) throws -> FanInfo {
         let result = try JSONDecoder().decode(FanInfo.self, from: data)
         guard result.ok else {
@@ -548,6 +557,7 @@ final class DeviceViewModel: ObservableObject {
     @Published var vnc = VNCStatusViewData()
     @Published var previewImage: PlatformImage?
     @Published var isLoading = false
+    @Published var isThrottledBecauseOfLPM = false
     @Published var isUpdatingFan = false
     @Published var statusMessage: String?
     @Published var errorMessage: String?
@@ -563,10 +573,11 @@ final class DeviceViewModel: ObservableObject {
     
     func refresh() async {
         guard !isLoading else { return }
+        isThrottledBecauseOfLPM = isLowPowerMode
         isLoading = true
         errorMessage = nil
         defer { isLoading = false }
-
+        
         do {
             let newInfo = try await api.deviceInfo()
             info = newInfo
@@ -574,37 +585,51 @@ final class DeviceViewModel: ObservableObject {
         } catch {
             errorMessage = HostChecker.describe(error)
         }
-
+        
         await loadResources()
         await loadThermal()
-
+        
         do {
             fan = try await api.fanInfo()
         } catch {
             errorMessage = HostChecker.describe(error)
         }
-
+        
         do {
             applyVNCStatus(try await api.vncStatus())
         } catch {
             errorMessage = HostChecker.describe(error)
         }
     }
-
+    
     func refreshThermal() async {
         guard !isLoading else { return }
         await loadThermal()
     }
-
+    
     func refreshResources() async {
         guard !isLoading else { return }
         await loadResources()
     }
-
+    
+    private var isLowPowerMode: Bool {
+    #if os(iOS)
+        ProcessInfo.processInfo.isLowPowerModeEnabled
+    #else
+        false
+    #endif
+    }
+    
     func monitor() async {
+        var thermalInterval: TimeInterval =
+        isLowPowerMode ? 30 : 5
+        
+        var resourceInterval: TimeInterval =
+        isLowPowerMode ? 60 : 10
+        
         var nextThermalRefresh = Date().addingTimeInterval(5)
         var nextResourceRefresh = Date().addingTimeInterval(10)
-
+        
         while !Task.isCancelled {
             let nextRefresh = min(nextThermalRefresh, nextResourceRefresh)
             do {
@@ -614,23 +639,25 @@ final class DeviceViewModel: ObservableObject {
             } catch {
                 return
             }
-
+            
             if Date() >= nextThermalRefresh {
                 await refreshThermal()
+                
                 repeat {
-                    nextThermalRefresh.addTimeInterval(5)
+                    nextThermalRefresh.addTimeInterval(thermalInterval)
                 } while nextThermalRefresh <= Date()
             }
-
+            
             if Date() >= nextResourceRefresh {
                 await refreshResources()
+                
                 repeat {
-                    nextResourceRefresh.addTimeInterval(10)
+                    nextResourceRefresh.addTimeInterval(resourceInterval)
                 } while nextResourceRefresh <= Date()
             }
         }
     }
-
+    
     private func loadThermal() async {
         do {
             thermal = try await api.thermal()
@@ -640,7 +667,7 @@ final class DeviceViewModel: ObservableObject {
             errorMessage = HostChecker.describe(error)
         }
     }
-
+    
     private func loadResources() async {
         do {
             async let memoryRequest = api.memory()
@@ -654,7 +681,7 @@ final class DeviceViewModel: ObservableObject {
             errorMessage = HostChecker.describe(error)
         }
     }
-
+    
     func uptime(at date: Date) -> TimeInterval? {
         guard let uptimeSecondsAtRefresh, let uptimeRefreshDate else { return nil }
         return max(0, uptimeSecondsAtRefresh + date.timeIntervalSince(uptimeRefreshDate))
@@ -666,22 +693,22 @@ final class DeviceViewModel: ObservableObject {
             applyVNCStatus(response)
         }
     }
-
+    
     func setFanGovernor(enabled: Bool) async {
         guard !isUpdatingFan else { return }
         isUpdatingFan = true
         defer { isUpdatingFan = false }
-
+        
         await perform("Fan governor \(enabled ? "enabled" : "disabled")") {
             fan = try await api.setFanGovernor(enabled: enabled)
         }
     }
-
+    
     func setFanState(_ state: Int) async {
         guard !isUpdatingFan, fan?.control == "userspace", fan?.state != state else { return }
         isUpdatingFan = true
         defer { isUpdatingFan = false }
-
+        
         await perform("Fan state set to \(state)") {
             fan = try await api.setFanState(state)
         }
@@ -698,7 +725,7 @@ final class DeviceViewModel: ObservableObject {
             _ = try await api.command(path, method: "GET")
         }
     }
-
+    
     func restartHyprland() async {
         await perform("Hyprland restarted") {
             _ = try await api.command("/hyprland/restart")
@@ -721,6 +748,7 @@ final class DeviceViewModel: ObservableObject {
             let resourceValues = try url.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey])
             guard resourceValues.isRegularFile == true else {
                 // this is either a directory or symblink
+                // for example, Swift Playgrounds packages (.swiftpm) and macOS applications (.app) are actually directories and will error
                 throw EbenAPIError.api("The selected item is not a regular file.")
             }
             if let size = resourceValues.fileSize, size > 512 * 1024 * 1024 {
@@ -750,7 +778,7 @@ final class DeviceViewModel: ObservableObject {
         if response.stopped == true { parts.append("Stopped") }
         vnc.description = parts.isEmpty ? "No tracked VNC process" : parts.joined(separator: ", ")
     }
-
+    
     private func setUptimeReference(from rawValue: String) {
         guard let secondsText = rawValue.split(separator: " ").first,
               let seconds = TimeInterval(secondsText) else {
@@ -819,13 +847,8 @@ struct ContentView: View {
         } detail: {
             if let selectedHost {
                 DeviceDetailView(host: selectedHost.address)
-                    .id(selectedHost.id)
             } else {
-                ContentUnavailableView(
-                    "Select a Device",
-                    systemImage: "desktopcomputer",
-                    description: Text("Choose an available Ranboo device from the sidebar.")
-                )
+                DevicePlaceholderView()
             }
         }
         .navigationSplitViewStyle(.balanced)
@@ -833,9 +856,25 @@ struct ContentView: View {
             checker.checkAll()
         }
         .onReceive(checker.$hosts) { hosts in
+            // this is commented out as we don't want to autofocus on a host, especially if more than 1 interface is enabled on Eben
             // guard selectedHostID == nil else { return }
             // selectedHostID = hosts.first(where: { $0.services.ranboo.isOnline })?.id
         }
+    }
+}
+struct DevicePlaceholderView: View {
+    @State private var randomDescription = [
+        "So grab a plate, have a taste!",
+        "Butcher Vanity是一个爆炸物",
+        "https://www.youtube.com/channel/UCKQ-wNdh0kO5qnpPfXa2hjQ"
+    ].randomElement()!
+    
+    var body: some View {
+        ContentUnavailableView(
+            "Select a Device",
+            systemImage: "desktopcomputer",
+            description: Text(randomDescription)
+        )
     }
 }
 
@@ -900,267 +939,299 @@ struct DeviceDetailView: View {
     }
     
     var body: some View {
-        List {
-            if model.isLoading {
-                Section { ProgressView("Loading device data...") }
-            }
-            
-            Section("Device") {
-                LabeledContent("Hostname", value: display(model.info.hostname))
-                LabeledContent("Model", value: display(model.info.model))
-                LabeledContent("Serial", value: display(model.info.serial))
-                LabeledContent("Revision", value: display(model.info.revision))
-                TimelineView(.periodic(from: .now, by: 1)) { context in
-                    LabeledContent(
-                        "Uptime",
-                        value: formattedUptime(at: context.date)
-                    )
-                }
-                LabeledContent("Kernel", value: display(model.info.kernelVersion))
-                Button("Go to Ranboo WebUI") {
-                    if let url = URL(string: "http://\(model.host):8000") {
-                        openURL(url)
-                    }
-                }
-            }
-            
-            Section("Memory") {
-                if let memory = model.memory,
-                   let used = memory.usedMiB,
-                   let total = memory.totalMiB,
-                   total > 0 {
-                    LabeledContent("Used", value: "\(format(used)) / \(format(total)) MiB")
-                    ProgressView(value: used, total: total)
-                    if let free = memory.freeMiB {
-                        LabeledContent("Free", value: "\(format(free)) MiB")
-                    }
-                } else {
-                    Text("No memory data")
-                        .foregroundStyle(.secondary)
-                }
-            }
-
-            Section("Disks") {
-                if model.disks.isEmpty {
-                    Text("No disk data")
-                        .foregroundStyle(.secondary)
-                } else {
-                    ForEach(model.disks) { disk in
-                        VStack(alignment: .leading, spacing: 8) {
-                            LabeledContent(disk.mountpoint, value: disk.device)
-                                .font(.headline)
-                            LabeledContent(
-                                "Used",
-                                value: "\(formatBytes(disk.usage.used)) / \(formatBytes(disk.usage.total))"
-                            )
-                            ProgressView(value: disk.usage.used, total: max(disk.usage.total, 1))
-                            LabeledContent("Free", value: formatBytes(disk.usage.free))
-                            LabeledContent("Filesystem", value: display(disk.fstype))
-                        }
-                        .padding(.vertical, 4)
-                    }
-                }
-            }
-            
-            Section("Thermals") {
-                temperatureRow("CPU", value: model.thermal.cpu)
-                temperatureRow("GPU", value: model.thermal.gpu)
-                temperatureRow("PMIC", value: model.thermal.pmic)
-            }
-
-            FanControlsView(model: model)
-            
-            Section("Remote Desktop") {
-                Text(model.vnc.description)
-                    .foregroundStyle(.secondary)
-                Button("Restart Hyprland", role: .destructive) {
-                    isConfirmingHyprlandRestart = true
-                }
-                Button("Start VNC") { Task { await model.runVNC("/vnc/start") } }
-                Button("Start VNC with WebSocket") { Task { await model.runVNC("/vnc/start/websocket") } }
-                Button("Start noVNC") { Task { await model.runVNC("/vnc/start/novnc") } }
-                Button("Stop VNC", role: .destructive) { Task { await model.runVNC("/vnc/stop") } }
-                Button("Stop noVNC", role: .destructive) { Task { await model.runVNC("/vnc/stop/novnc") } }
-                Button("Load Preview") { Task { await model.loadPreview() } }
-                Button("Launch noVNC") {
-                    if let url = URL(string: "http://\(model.host):6080/vnc.html") {
-                        openURL(url)
-                    }
-                }
-                
-                if let image = model.previewImage {
-                    platformImage(image)
-                        .resizable()
-                        .scaledToFit()
-                        .clipShape(RoundedRectangle(cornerRadius: 8))
-                }
-            }
-
-            // For now I can't think of a good way to implement Ranboo -> Client file transfer so for now, only implement Client -> Ranboo
-            Section("Send File") {
-                PhotosPicker(selection: $selectedPhotoItem, matching: .any(of: [.images, .videos])) {
-                    Label("Choose from Photos Library", systemImage: "photo.on.rectangle")
-                }
-                
-                Button {
-                    isShowingFileImporter = true
-                } label: {
-                    Label("Choose from Files", systemImage: "folder")
-                }
-                
-                Text("The selected file will be uploaded to ~/Downloads using its original filename.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-            
-            Section("Ironmouse AP") {
-                ForEach(IronmouseApAction.allCases) { action in
-                    Button(action.title, role: action.role) {
-                        Task { await model.power(action.path) }
-                    }
-                }
-            }
-
-            Section("Ironmouse Eth") {
-                ForEach(IronmouseEthAction.allCases) { action in
-                    Button(action.title, role: action.role) {
-                        Task { await model.power(action.path) }
-                    }
-                }
-            }
-            
-            Section("Power") {
-                ForEach(PowerAction.allCases) { action in
-                    Button(action.title, role: action.role) {
-                        pendingPowerAction = action
-                    }
-                }
-            }
-            
-            Section("Debug") {
-                Text("IP: \(model.host)\nisLoading: \(model.isLoading)")
-                    .monospaced()
-            }
-            if let message = model.statusMessage {
-                Section { Text(message).foregroundStyle(.green) }
-            }
-            if let error = model.errorMessage {
-                Section("Networking Error") {
-                    Text(error)
-                        .font(.caption.monospaced())
-                        .textSelection(.enabled)
-                }
-            }
-        }
-        .navigationTitle(model.info.hostname.isEmpty ? model.host : model.info.hostname)
+        configuredList
+    }
+    
+    private var configuredList: some View {
+        deviceList
+            .navigationTitle(navigationTitle)
 #if os(iOS)
-        .navigationBarTitleDisplayMode(.inline)
+            .navigationBarTitleDisplayMode(.inline)
 #endif
-        .toolbar {
-            ToolbarItem(placement: .primaryAction) {
-                Button {
-                    Task { await model.refresh() }
-                } label: {
-                    Label("Refresh", systemImage: "arrow.clockwise")
+            .toolbar { refreshToolbar }
+            .task { await refreshAndMonitor() }
+            .fileImporter(
+                isPresented: $isShowingFileImporter,
+                allowedContentTypes: [.item],
+                allowsMultipleSelection: false,
+                onCompletion: handleFileImport
+            )
+            .onChange(of: selectedPhotoItem) { item in
+                handlePhotoSelection(item)
+            }
+            .modifier(DeviceConfirmationDialogs(
+                model: model,
+                pendingPowerAction: $pendingPowerAction,
+                isConfirmingHyprlandRestart: $isConfirmingHyprlandRestart,
+                pendingIronmouseApAction: $pendingIronmouseApAction,
+                pendingIronmouseEthAction: $pendingIronmouseEthAction
+            ))
+    }
+    
+    private var navigationTitle: String {
+        let hostname = model.info.hostname
+        return hostname.isEmpty ? model.host : hostname
+    }
+    
+    @ToolbarContentBuilder
+    private var refreshToolbar: some ToolbarContent {
+        ToolbarItem(placement: .primaryAction) {
+            Button(action: refreshDevice) {
+                Label("Refresh", systemImage: "arrow.clockwise")
+            }
+        }
+    }
+    
+    private var deviceList: some View {
+        List {
+            primarySections
+            controlSections
+            feedbackSections
+        }
+    }
+    
+    @ViewBuilder
+    private var primarySections: some View {
+        loadingSection
+        deviceSection
+        memorySection
+        disksSection
+        thermalSection
+    }
+    
+    @ViewBuilder
+    private var controlSections: some View {
+        FanControlsView(model: model)
+        remoteDesktopSection
+        sendFileSection
+        ironmouseAPSection
+        ironmouseEthernetSection
+        powerSection
+    }
+    
+    @ViewBuilder
+    private var feedbackSections: some View {
+        debugSection
+        statusSection
+        errorSection
+    }
+    
+    @ViewBuilder
+    private var loadingSection: some View {
+        if model.isLoading {
+            Section { ProgressView("Loading device data...") }
+        }
+    }
+    
+    private var deviceSection: some View {
+        Section("Device") {
+            LabeledContent("Hostname", value: display(model.info.hostname))
+            LabeledContent("Model", value: display(model.info.model))
+            LabeledContent("Serial", value: display(model.info.serial))
+            LabeledContent("Revision", value: display(model.info.revision))
+            uptimeRow
+            LabeledContent("Kernel", value: display(model.info.kernelVersion))
+            Button("Go to Ranboo WebUI", action: openRanbooWebUI)
+        }
+    }
+    
+    private var uptimeRow: some View {
+        TimelineView(.periodic(from: .now, by: 1)) { context in
+            let value = formattedUptime(at: context.date)
+            LabeledContent("Uptime", value: value)
+        }
+    }
+    
+    @ViewBuilder
+    private var memorySection: some View {
+        Section("Memory") {
+            if let memory = model.memory,
+               let used = memory.usedMiB,
+               let total = memory.totalMiB,
+               total > 0 {
+                let usedText = format(used)
+                let totalText = format(total)
+                let usageText = "\(usedText) / \(totalText) MiB"
+                LabeledContent("Used", value: usageText)
+                ProgressView(value: used, total: total)
+                if let free = memory.freeMiB {
+                    let freeText = "\(format(free)) MiB"
+                    LabeledContent("Free", value: freeText)
+                }
+            } else {
+                Text("No memory data").foregroundStyle(.secondary)
+            }
+        }
+    }
+    
+    @ViewBuilder
+    private var disksSection: some View {
+        Section("Disks") {
+            if model.disks.isEmpty {
+                Text("No disk data").foregroundStyle(.secondary)
+            } else {
+                ForEach(model.disks) { disk in
+                    DiskUsageView(disk: disk)
                 }
             }
         }
-        .task {
-            await model.refresh()
-            await model.monitor()
+    }
+    
+    private var thermalSection: some View {
+        Section("Thermals") {
+            temperatureRow("CPU", value: model.thermal.cpu)
+            temperatureRow("GPU", value: model.thermal.gpu)
+            temperatureRow("PMIC", value: model.thermal.pmic)
         }
-        .fileImporter(
-            isPresented: $isShowingFileImporter,
-            allowedContentTypes: [.item],
-            allowsMultipleSelection: false
-        ) { result in
-            switch result {
-            case .success(let urls):
-                guard let url = urls.first else { return }
-                Task { await model.sendFile(at: url) }
-            case .failure(let error):
-                model.errorMessage = HostChecker.describe(error)
-            }
-        }
-        .onChange(of: selectedPhotoItem) { item in
-            guard let item else { return }
-            Task { await sendPhoto(item) }
-        }
-        .confirmationDialog(
-            pendingPowerAction.map { "\($0.title) \(model.host)?" } ?? "Power action",
-            isPresented: Binding(
-                get: { pendingPowerAction != nil },
-                set: { if !$0 { pendingPowerAction = nil } }
-            ),
-            titleVisibility: .visible
-        ) {
-            if let action = pendingPowerAction {
-                Button(action.title, role: action.role) {
-                    pendingPowerAction = nil
-                    Task { await model.power(action.path) }
-                }
-            }
-            Button("Cancel", role: .cancel) { pendingPowerAction = nil }
-        } message: {
-            Text("This command affects the remote device immediately.")
-        }
-
-        .confirmationDialog(
-            "Restart Hyprland on \(model.host)?",
-            isPresented: $isConfirmingHyprlandRestart,
-            titleVisibility: .visible
-        ) {
+    }
+    
+    private var remoteDesktopSection: some View {
+        Section("Remote Desktop") {
+            Text(model.vnc.description).foregroundStyle(.secondary)
             Button("Restart Hyprland", role: .destructive) {
-                Task { await model.restartHyprland() }
+                isConfirmingHyprlandRestart = true
             }
-            Button("Cancel", role: .cancel) {}
-        } message: {
-            Text("The desktop compositor and active remote desktop session may disconnect briefly.")
+            vncButton("Start VNC", path: "/vnc/start")
+            vncButton("Start VNC with WebSocket", path: "/vnc/start/websocket")
+            vncButton("Start noVNC", path: "/vnc/start/novnc")
+            vncButton("Stop VNC", path: "/vnc/stop", role: .destructive)
+            vncButton("Stop noVNC", path: "/vnc/stop/novnc", role: .destructive)
+            Button("Load Preview", action: loadPreview)
+            Button("Launch noVNC", action: openNoVNC)
+            previewView
         }
-        
-        .confirmationDialog(
-            pendingIronmouseApAction.map { "\($0.title) Ironmouse AP?" } ?? "Ironmouse AP action",
-            isPresented: Binding(
-                get: { pendingIronmouseApAction != nil },
-                set: { if !$0 { pendingIronmouseApAction = nil } }
-            ),
-            titleVisibility: .visible
-        ) {
-            if let action = pendingIronmouseApAction {
+    }
+    
+    @ViewBuilder
+    private var previewView: some View {
+        if let image = model.previewImage {
+            platformImage(image)
+                .resizable()
+                .scaledToFit()
+                .clipShape(RoundedRectangle(cornerRadius: 8))
+        }
+    }
+    
+    private var sendFileSection: some View {
+        // todo: add option for using taking a picture in-app and sending that on iOS/iPadOS
+        Section("Send File") {
+            PhotosPicker(selection: $selectedPhotoItem, matching: .any(of: [.images, .videos])) {
+                Label("Choose from Photos Library", systemImage: "photo.on.rectangle")
+            }
+            Button(action: showFileImporter) {
+                Label("Choose from Files", systemImage: "folder")
+            }
+            Text("The selected file will be uploaded to ~/Downloads using its original filename.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+    }
+    
+    private var ironmouseAPSection: some View {
+        Section("Ironmouse AP") {
+            Text("Ironmouse actions are currently broken, they will enable/disable both AP and Eth. DO NOT USE!!")
+            ForEach(IronmouseApAction.allCases) { action in
                 Button(action.title, role: action.role) {
-                    pendingIronmouseApAction = nil
-                    Task { await model.power(action.path) }
+                    pendingIronmouseApAction = action
                 }
             }
-
-            Button("Cancel", role: .cancel) {
-                pendingIronmouseApAction = nil
-            }
-        } message: {
-            Text("This command affects the remote device immediately.")
         }
-
-        .confirmationDialog(
-            pendingIronmouseEthAction.map { "\($0.title) Ironmouse Ethernet?" } ?? "Ironmouse Ethernet action",
-            isPresented: Binding(
-                get: { pendingIronmouseEthAction != nil },
-                set: { if !$0 { pendingIronmouseEthAction = nil } }
-            ),
-            titleVisibility: .visible
-        ) {
-            if let action = pendingIronmouseEthAction {
+    }
+    
+    private var ironmouseEthernetSection: some View {
+        Section("Ironmouse Eth") {
+            Text("Ironmouse actions are currently broken, they will enable/disable both AP and Eth. DO NOT USE!!")
+            ForEach(IronmouseEthAction.allCases) { action in
                 Button(action.title, role: action.role) {
-                    pendingIronmouseEthAction = nil
-                    Task { await model.power(action.path) }
+                    pendingIronmouseEthAction = action
                 }
             }
-
-            Button("Cancel", role: .cancel) {
-                pendingIronmouseEthAction = nil
-            }
-        } message: {
-            Text("This command affects the remote device immediately.")
         }
+    }
+    
+    private var powerSection: some View {
+        Section("Power") {
+            ForEach(PowerAction.allCases) { action in
+                Button(action.title, role: action.role) {
+                    pendingPowerAction = action
+                }
+            }
+        }
+    }
+    
+    private var debugSection: some View {
+        let text = "IP: \(model.host)\nisLoading: \(model.isLoading)\nLPM throttled: \(model.isThrottledBecauseOfLPM)"
+        return Section("Debug Info") { Text(text).monospaced() }
+    }
+    
+    @ViewBuilder
+    private var statusSection: some View {
+        if let message = model.statusMessage {
+            Section { Text(message).foregroundStyle(.green) }
+        }
+    }
+    
+    @ViewBuilder
+    private var errorSection: some View {
+        if let error = model.errorMessage {
+            Section("Networking Error") {
+                Text(error)
+                    .font(.caption.monospaced())
+                    .textSelection(.enabled)
+            }
+        }
+    }
+    
+    private func vncButton(_ title: String, path: String, role: ButtonRole? = nil) -> some View {
+        Button(title, role: role) {
+            Task { await model.runVNC(path) }
+        }
+    }
+    
+    private func refreshDevice() {
+        Task { await model.refresh() }
+    }
+    
+    private func refreshAndMonitor() async {
+        await model.refresh()
+        await model.monitor()
+    }
+    
+    private func showFileImporter() {
+        isShowingFileImporter = true
+    }
+    
+    private func loadPreview() {
+        Task { await model.loadPreview() }
+    }
+    
+    private func openRanbooWebUI() {
+        openURLForPort(8000, path: "")
+    }
+    
+    private func openNoVNC() {
+        openURLForPort(6080, path: "/vnc.html")
+    }
+    
+    private func openURLForPort(_ port: Int, path: String) {
+        let address = "http://\(model.host):\(port)\(path)"
+        guard let url = URL(string: address) else { return }
+        openURL(url)
+    }
+    
+    private func handleFileImport(_ result: Result<[URL], Error>) {
+        switch result {
+        case .success(let urls):
+            guard let url = urls.first else { return }
+            Task { await model.sendFile(at: url) }
+        case .failure(let error):
+            model.errorMessage = HostChecker.describe(error)
+        }
+    }
+    
+    private func handlePhotoSelection(_ item: PhotosPickerItem?) {
+        guard let item else { return }
+        Task { await sendPhoto(item) }
     }
     
     private func sendPhoto(_ item: PhotosPickerItem) async {
@@ -1168,13 +1239,12 @@ struct DeviceDetailView: View {
             guard let data = try await item.loadTransferable(type: Data.self) else {
                 throw EbenAPIError.api("The selected Photos item could not be loaded.")
             }
-            // If you record in 4K60 on your iPhone this *may* be a problem
-            guard data.count <= 512 * 1024 * 1024 else {
+            let maximumUploadSize = 512 * 1024 * 1024
+            guard data.count <= maximumUploadSize else {
                 throw EbenAPIError.api("The selected file is larger than the 512 MB upload limit.")
             }
-            
-            let filename = originalPhotoFilename(for: item)
-            ?? fallbackPhotoFilename(for: item)
+            let originalName = originalPhotoFilename(for: item)
+            let filename = originalName ?? fallbackPhotoFilename(for: item)
             await model.sendFile(data: data, originalFilename: filename)
         } catch {
             model.errorMessage = HostChecker.describe(error)
@@ -1184,18 +1254,21 @@ struct DeviceDetailView: View {
     
     private func originalPhotoFilename(for item: PhotosPickerItem) -> String? {
         guard let identifier = item.itemIdentifier else { return nil }
-        let result = PHAsset.fetchAssets(withLocalIdentifiers: [identifier], options: nil)
+        let identifiers = [identifier]
+        let result = PHAsset.fetchAssets(withLocalIdentifiers: identifiers, options: nil)
         guard let asset = result.firstObject else { return nil }
-        let finalName = PHAssetResource.assetResources(for: asset).first?.originalFilename
-        print("Saving as \(finalName)")
+        let resources = PHAssetResource.assetResources(for: asset)
+        let finalName = resources.first?.originalFilename
+        print("Saving as \(String(describing: finalName))")
         return finalName
     }
     
     private func fallbackPhotoFilename(for item: PhotosPickerItem) -> String {
         let type = item.supportedContentTypes.first
         let extensionPart = type?.preferredFilenameExtension.map { ".\($0)" } ?? ""
-        let finalName = "Photo-\(UUID().uuidString)\(extensionPart)"
-        print("Whoops, couldn't get original file name from Photos, so will save picture as \(finalName)")
+        let identifier = UUID().uuidString
+        let finalName = "Photo-\(identifier)\(extensionPart)"
+        print("Could not get the original Photos filename; using \(finalName)")
         return finalName
     }
     
@@ -1206,44 +1279,48 @@ struct DeviceDetailView: View {
     private func format(_ value: Double) -> String {
         value.formatted(.number.precision(.fractionLength(0...1)))
     }
-
-    private func formatBytes(_ value: Double) -> String {
-        ByteCountFormatter.string(
-            fromByteCount: Int64(value.rounded()),
-            countStyle: .file
-        )
-    }
     
     private func formattedUptime(at date: Date) -> String {
         guard let uptime = model.uptime(at: date) else {
             return display(model.info.uptime)
         }
-
         let totalSeconds = Int(uptime.rounded(.down))
         let days = totalSeconds / 86_400
         let hours = totalSeconds % 86_400 / 3_600
         let minutes = totalSeconds % 3_600 / 60
         let seconds = totalSeconds % 60
-
-        if days > 0 {
-            return "\(days)d \(hours)h \(minutes)m \(seconds)s"
-        }
-        if hours > 0 {
-            return "\(hours)h \(minutes)m \(seconds)s"
-        }
+        if days > 0 { return "\(days)d \(hours)h \(minutes)m \(seconds)s" }
+        if hours > 0 { return "\(hours)h \(minutes)m \(seconds)s" }
         return "\(minutes)m \(seconds)s"
     }
     
     @ViewBuilder
     private func temperatureRow(_ label: String, value: Double?) -> some View {
         if let value {
-            // todo: we should probably convert this to farenhight if you have your temp unit in locale set to that
-            LabeledContent(label, value: "\(format(value)) °C")
-            Gauge(value: value, in: 0...100) { EmptyView() }
-                .tint(value >= 80 ? .red : value >= 65 ? .orange : .green)
+            // todo: use the temperature units set in your OS locale settings
+            let temperatureText = "\(format(value)) °C"
+            let tint = temperatureTint(for: value)
+            LabeledContent(label, value: temperatureText)
+            // "In fact, Raspberry Pi devices have been tested to well over 120degree C with no problems"
+            // this seems to imply that Raspberry Pi has no thermal shutdown (?)
+            Gauge(value: value, in: 0...120) { EmptyView() }.tint(tint)
         } else {
             LabeledContent(label, value: "Unknown")
         }
+    }
+    
+    private func temperatureTint(for value: Double) -> Color {
+        // Cooler than normal operating temperature
+        if value < 40 { return .cyan }
+        
+        // Warning levels
+        // Raspberry Pi throttles above 85C
+        if value >= 85 { return .red }
+        if value >= 70 { return .orange }
+        if value >= 65 { return .yellow }
+        
+        // Normal operating range
+        return .green
     }
     
     private func platformImage(_ image: PlatformImage) -> Image {
@@ -1255,19 +1332,172 @@ struct DeviceDetailView: View {
     }
 }
 
+private struct DiskUsageView: View {
+    let disk: DiskInfo
+    
+    var body: some View {
+        let usedText = formatBytes(disk.usage.used)
+        let totalText = formatBytes(disk.usage.total)
+        let usageText = "\(usedText) / \(totalText)"
+        let progressTotal = max(disk.usage.total, 1)
+        VStack(alignment: .leading, spacing: 8) {
+            LabeledContent(disk.mountpoint, value: disk.device).font(.headline)
+            LabeledContent("Used", value: usageText)
+            ProgressView(value: disk.usage.used, total: progressTotal)
+            LabeledContent("Free", value: formatBytes(disk.usage.free))
+            LabeledContent("Filesystem", value: display(disk.fstype))
+        }
+        .padding(.vertical, 4)
+    }
+    
+    private func display(_ value: String) -> String {
+        value.isEmpty ? "Unknown" : value
+    }
+    
+    private func formatBytes(_ value: Double) -> String {
+        let bytes = Int64(value.rounded())
+        return ByteCountFormatter.string(fromByteCount: bytes, countStyle: .file)
+    }
+}
+
+private struct DeviceConfirmationDialogs: ViewModifier {
+    @ObservedObject var model: DeviceViewModel
+    @Binding var pendingPowerAction: PowerAction?
+    @Binding var isConfirmingHyprlandRestart: Bool
+    @Binding var pendingIronmouseApAction: IronmouseApAction?
+    @Binding var pendingIronmouseEthAction: IronmouseEthAction?
+    
+    func body(content: Content) -> some View {
+        content
+            .confirmationDialog(
+                powerDialogTitle,
+                isPresented: powerDialogBinding,
+                titleVisibility: .visible,
+                actions: powerDialogActions,
+                message: immediateActionMessage
+            )
+            .confirmationDialog(
+                "Restart Hyprland on \(model.host)?",
+                isPresented: $isConfirmingHyprlandRestart,
+                titleVisibility: .visible,
+                actions: hyprlandDialogActions,
+                message: hyprlandMessage
+            )
+            .confirmationDialog(
+                apDialogTitle,
+                isPresented: apDialogBinding,
+                titleVisibility: .visible,
+                actions: apDialogActions,
+                message: immediateActionMessage
+            )
+            .confirmationDialog(
+                ethernetDialogTitle,
+                isPresented: ethernetDialogBinding,
+                titleVisibility: .visible,
+                actions: ethernetDialogActions,
+                message: immediateActionMessage
+            )
+    }
+    
+    private var powerDialogTitle: String {
+        guard let action = pendingPowerAction else { return "Power action" }
+        return "\(action.title) \(model.host)?"
+    }
+    
+    private var apDialogTitle: String {
+        guard let action = pendingIronmouseApAction else { return "Ironmouse AP action" }
+        return "\(action.title) Ironmouse AP?"
+    }
+    
+    private var ethernetDialogTitle: String {
+        guard let action = pendingIronmouseEthAction else { return "Ironmouse Ethernet action" }
+        return "\(action.title) Ironmouse Ethernet?"
+    }
+    
+    private var powerDialogBinding: Binding<Bool> {
+        Binding(
+            get: { pendingPowerAction != nil },
+            set: { isPresented in if !isPresented { pendingPowerAction = nil } }
+        )
+    }
+    
+    private var apDialogBinding: Binding<Bool> {
+        Binding(
+            get: { pendingIronmouseApAction != nil },
+            set: { isPresented in if !isPresented { pendingIronmouseApAction = nil } }
+        )
+    }
+    
+    private var ethernetDialogBinding: Binding<Bool> {
+        Binding(
+            get: { pendingIronmouseEthAction != nil },
+            set: { isPresented in if !isPresented { pendingIronmouseEthAction = nil } }
+        )
+    }
+    
+    @ViewBuilder
+    private func powerDialogActions() -> some View {
+        if let action = pendingPowerAction {
+            Button(action.title, role: action.role) {
+                pendingPowerAction = nil
+                Task { await model.power(action.path) }
+            }
+        }
+        Button("Cancel", role: .cancel) { pendingPowerAction = nil }
+    }
+    
+    @ViewBuilder
+    private func hyprlandDialogActions() -> some View {
+        Button("Restart Hyprland", role: .destructive) {
+            Task { await model.restartHyprland() }
+        }
+        Button("Cancel", role: .cancel) {}
+    }
+    
+    @ViewBuilder
+    private func apDialogActions() -> some View {
+        if let action = pendingIronmouseApAction {
+            Button(action.title, role: action.role) {
+                pendingIronmouseApAction = nil
+                Task { await model.power(action.path) }
+            }
+        }
+        Button("Cancel", role: .cancel) { pendingIronmouseApAction = nil }
+    }
+    
+    @ViewBuilder
+    private func ethernetDialogActions() -> some View {
+        if let action = pendingIronmouseEthAction {
+            Button(action.title, role: action.role) {
+                pendingIronmouseEthAction = nil
+                Task { await model.power(action.path) }
+            }
+        }
+        Button("Cancel", role: .cancel) { pendingIronmouseEthAction = nil }
+    }
+    
+    private func immediateActionMessage() -> some View {
+        Text("This command affects the remote device immediately.")
+    }
+    
+    private func hyprlandMessage() -> some View {
+        Text("The desktop compositor and active remote desktop session may disconnect briefly.")
+    }
+}
+
 struct FanControlsView: View {
     @ObservedObject var model: DeviceViewModel
     @State private var selectedState = 0.0
     @State private var isEditingSlider = false
-
+    
     private var isGovernorEnabled: Bool {
         model.fan?.governor == "enabled"
     }
-
+    
     private var canControlManually: Bool {
         model.fan?.control == "userspace" && !model.isUpdatingFan
     }
-
+    
     var body: some View {
         Section("Fan") {
             if let fan = model.fan {
@@ -1281,10 +1511,10 @@ struct FanControlsView: View {
                     )
                 )
                 .disabled(model.isUpdatingFan || fan.governor == nil)
-
+                
                 LabeledContent("Control", value: controlDescription(fan.control))
                 LabeledContent("Current state", value: stateDescription(fan))
-
+                
                 if let maxState = fan.maxState, maxState > 0 {
                     VStack(alignment: .leading, spacing: 8) {
                         LabeledContent(
@@ -1304,7 +1534,7 @@ struct FanControlsView: View {
                         }
                         .disabled(!canControlManually)
                     }
-
+                    
                     if isGovernorEnabled {
                         Text("Disable the automatic governor to set the fan state manually.")
                             .font(.caption)
@@ -1314,7 +1544,7 @@ struct FanControlsView: View {
                     Text("The server did not report a usable fan state range.")
                         .foregroundStyle(.secondary)
                 }
-
+                
                 if model.isUpdatingFan {
                     ProgressView("Updating fan...")
                 }
@@ -1328,7 +1558,7 @@ struct FanControlsView: View {
             selectedState = Double(state)
         }
     }
-
+    
     private func controlDescription(_ control: String?) -> String {
         switch control {
         case "governor": return "Automatic governor"
@@ -1336,7 +1566,7 @@ struct FanControlsView: View {
         default: return "Unknown"
         }
     }
-
+    
     private func stateDescription(_ fan: FanInfo) -> String {
         guard let state = fan.state else { return "Unknown" }
         guard let maxState = fan.maxState else { return "\(state)" }
@@ -1345,13 +1575,14 @@ struct FanControlsView: View {
 }
 
 enum PowerAction: String, CaseIterable, Identifiable {
-    case restart, sleep, hibernate, poweroff
+    case logout, restart, sleep, hibernate, poweroff
     
     var id: String { rawValue }
     var path: String { "/power/\(rawValue)" }
     
     var title: String {
         switch self {
+        case .logout: return "Log Out"
         case .restart: return "Restart"
         case .sleep: return "Sleep"
         case .hibernate: return "Hibernate"
@@ -1361,12 +1592,12 @@ enum PowerAction: String, CaseIterable, Identifiable {
     
     var role: ButtonRole? {
         switch self {
-        case .restart, .poweroff: return .destructive
+        case .restart, .poweroff, .logout: return .destructive
         case .sleep, .hibernate: return nil
         }
     }
 }
-
+// stuff's completely bugged right now, DO NOT USE THE IRONMOUSE ACTIONS RIGHT NOW
 enum IronmouseApAction: String, CaseIterable, Identifiable {
     case enable, disable
     
