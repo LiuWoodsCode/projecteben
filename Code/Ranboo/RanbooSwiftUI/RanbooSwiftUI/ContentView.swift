@@ -104,7 +104,18 @@ struct ServiceState {
 struct HostStatus: Identifiable {
     let id = UUID()
     let address: String
+    let isDemo: Bool
     var services = ServiceState()
+    
+    init(
+        address: String,
+        isDemo: Bool = false,
+        services: ServiceState = ServiceState()
+    ) {
+        self.address = address
+        self.isDemo = isDemo
+        self.services = services
+    }
 }
 
 struct DeviceInfo {
@@ -415,6 +426,7 @@ struct EbenAPIClient {
         
         let filename = (originalFilename as NSString).lastPathComponent
         guard !filename.isEmpty, filename != ".", filename != ".." else {
+            // I'm not exactly sure what you would have to do to cause this, but safety is safety
             throw EbenAPIError.api("The selected file does not have a valid filename.")
         }
         
@@ -459,7 +471,17 @@ final class HostChecker: ObservableObject {
     @Published var hosts: [HostStatus] = [
         HostStatus(address: "10.42.0.1"), // wifi ap
         HostStatus(address: "10.42.1.1"), // eth share
-        HostStatus(address: "10.12.194.1") // usb gadget
+        HostStatus(address: "10.12.194.1"), // usb gadget
+        HostStatus(
+            address: "0.0.0.0",
+            isDemo: true,
+            services: ServiceState(
+                ssh: .online("Simulated"),
+                http: .online("Simulated"),
+                ios: .online("Simulated"),
+                ranboo: .online("Demo")
+            )
+        )
     ]
     
     private var connections: [UUID: [CheckedService: NWConnection]] = [:]
@@ -472,6 +494,10 @@ final class HostChecker: ObservableObject {
     
     func checkHost(id: UUID) {
         guard let index = hosts.firstIndex(where: { $0.id == id }) else { return }
+        // for the demo device, skip it (it doesn't offer Ranboo services anyway)
+        if hosts[index].isDemo {
+            return
+        }
         let address = hosts[index].address
         hosts[index].services = ServiceState(
             ssh: .checking,
@@ -479,12 +505,14 @@ final class HostChecker: ObservableObject {
             ios: .checking,
             ranboo: .checking
         )
-        
+        // check the 2 raw TCP services
         checkTCP(hostID: id, address: address, port: 22, service: .ssh)
         checkTCP(hostID: id, address: address, port: 8000, service: .http)
         
+        // now start the 2 HTTP based tests
         Task {
             do {
+                // check if port 8000 is HTTP and the HTTP stack can reach it
                 try await EbenAPIClient(host: address).detectIfAvailableWithOS()
                 update(id: id, service: .ios, status: .online("HTTP service exists"))
             } catch {
@@ -492,6 +520,7 @@ final class HostChecker: ObservableObject {
             }
             
             do {
+                // now check if this is actually ranboo
                 try await EbenAPIClient(host: address).detectRanboo()
                 update(id: id, service: .ranboo, status: .online("Eben Desktop API"))
             } catch {
@@ -562,13 +591,87 @@ final class DeviceViewModel: ObservableObject {
     @Published var statusMessage: String?
     @Published var errorMessage: String?
     
-    let host: String
     private var api: EbenAPIClient { EbenAPIClient(host: host) }
     private var uptimeSecondsAtRefresh: TimeInterval?
     private var uptimeRefreshDate: Date?
     
-    init(host: String) {
+    let host: String
+    let isDemo: Bool
+    
+    init(host: String, isDemo: Bool) {
         self.host = host
+        self.isDemo = isDemo
+    }
+
+    func loadDemoData() {
+        info = DeviceInfo(
+            model: "RanbooSwiftUI demo device",
+            hostname: "demodevice",
+            serial: "DEMO123456",
+            revision: "d04170",
+            kernelVersion: "Linux 6.6.51-v8+",
+            uptime: "30.0"
+        )
+        
+        memory = MemoryInfo(
+            ok: true,
+            totalMiB: 8192,
+            usedMiB: 3200,
+            freeMiB: 4992,
+            error: nil
+        )
+        
+        disks = [
+            DiskInfo(
+                device: "/dev/mmcblk0p2",
+                mountpoint: "/",
+                fstype: "ext4",
+                opts: "rw,relatime",
+                usage: DiskUsage(
+                    total: 64_000_000_000,
+                    used: 18_000_000_000,
+                    free: 46_000_000_000,
+                    percent: 28
+                )
+            ),
+            DiskInfo(
+                device: "/dev/sda1",
+                mountpoint: "/mnt/media",
+                fstype: "ext4",
+                opts: "rw,relatime",
+                usage: DiskUsage(
+                    total: 500_000_000_000,
+                    used: 210_000_000_000,
+                    free: 290_000_000_000,
+                    percent: 42
+                )
+            )
+        ]
+        
+        thermal = ThermalInfo(
+            cpu: 48.3,
+            gpu: 46.8,
+            pmic: 51.2
+        )
+        
+        fan = FanInfo(
+            ok: true,
+            control: "governor",
+            governor: "enabled",
+            state: 2,
+            maxState: 4,
+            error: nil
+        )
+        
+        vnc.description =
+        "wayvnc PID XXXX, noVNC PID XXXX"
+        
+        setUptimeReference(from: info.uptime)
+        
+        errorMessage = nil
+        
+        statusMessage =
+        "This is a UI demonstration and is not a real device. This mode is meant for mockups, demonstrations, and Apple's App Review. All actions are expected to throw errors."
     }
     
     func refresh() async {
@@ -576,6 +679,11 @@ final class DeviceViewModel: ObservableObject {
         isThrottledBecauseOfLPM = isLowPowerMode
         isLoading = true
         errorMessage = nil
+        if isDemo {
+            loadDemoData()
+            isLoading = false
+            return
+        }
         defer { isLoading = false }
         
         do {
@@ -749,6 +857,7 @@ final class DeviceViewModel: ObservableObject {
             guard resourceValues.isRegularFile == true else {
                 // this is either a directory or symblink
                 // for example, Swift Playgrounds packages (.swiftpm) and macOS applications (.app) are actually directories and will error
+                // iCloud Drive on the web handles this by putting said files in .ZIP containers when downloaded, perhaps we do something similar?
                 throw EbenAPIError.api("The selected item is not a regular file.")
             }
             if let size = resourceValues.fileSize, size > 512 * 1024 * 1024 {
@@ -772,9 +881,11 @@ final class DeviceViewModel: ObservableObject {
     
     private func applyVNCStatus(_ response: APIResponse) {
         var parts: [String] = []
+        // this isn't the *best* way to do this but it's certanly a way
         if let pid = response.wayvncPID { parts.append("wayvnc PID \(pid)") }
         if let pid = response.novncPID { parts.append("noVNC PID \(pid)") }
         if response.websocket == true { parts.append("WebSocket enabled") }
+        // this might break if somehow you end up with PIDs and yet it claims it's stopped?
         if response.stopped == true { parts.append("Stopped") }
         vnc.description = parts.isEmpty ? "No tracked VNC process" : parts.joined(separator: ", ")
     }
@@ -846,7 +957,10 @@ struct ContentView: View {
             }
         } detail: {
             if let selectedHost {
-                DeviceDetailView(host: selectedHost.address)
+                DeviceDetailView(
+                    host: selectedHost.address,
+                    isDemo: selectedHost.isDemo
+                )
             } else {
                 DevicePlaceholderView()
             }
@@ -862,18 +976,46 @@ struct ContentView: View {
         }
     }
 }
+
+
 struct DevicePlaceholderView: View {
-    @State private var randomDescription = [
+    @State private var randomDescriptionDevJokes = [
         "So grab a plate, have a taste!",
         "Butcher Vanity是一个爆炸物",
         "https://www.youtube.com/channel/UCKQ-wNdh0kO5qnpPfXa2hjQ"
+    ].randomElement()!
+    
+    static var deviceType: String {
+    #if os(visionOS)
+        return "Apple Vision"
+    #elseif os(iOS)
+        switch UIDevice.current.userInterfaceIdiom {
+            case .phone: return "iPhone"
+            case .pad: return "iPad"
+            case .carPlay: return "CarPlay"
+            default: return "Unknown iOS device)"
+        }
+    #elseif os(macOS)
+        return "Mac"
+    #elseif os(tvOS)
+        return "Apple TV" // How??
+    #elseif os(watchOS)
+        return "Apple Watch" // How??
+    #else
+        return "Unknown"
+    #endif
+    }
+    
+    // for production
+    @State private var randomDescription = [
+        "Make sure your Project Eben and \(deviceType) are connected together.",
     ].randomElement()!
     
     var body: some View {
         ContentUnavailableView(
             "Select a Device",
             systemImage: "desktopcomputer",
-            description: Text(randomDescription)
+            description: Text(randomDescriptionDevJokes)
         )
     }
 }
@@ -927,6 +1069,7 @@ struct ServiceLine: View {
 struct DeviceDetailView: View {
     @StateObject private var model: DeviceViewModel
     @State private var pendingPowerAction: PowerAction?
+    @State private var selectedDate = Date()
     @State private var isConfirmingHyprlandRestart = false
     @State private var pendingIronmouseApAction: IronmouseApAction?
     @State private var pendingIronmouseEthAction: IronmouseEthAction?
@@ -934,8 +1077,13 @@ struct DeviceDetailView: View {
     @State private var selectedPhotoItem: PhotosPickerItem?
     @Environment(\.openURL) private var openURL
     
-    init(host: String) {
-        _model = StateObject(wrappedValue: DeviceViewModel(host: host))
+    init(host: String, isDemo: Bool) {
+        _model = StateObject(
+            wrappedValue: DeviceViewModel(
+                host: host,
+                isDemo: isDemo
+            )
+        )
     }
     
     var body: some View {
@@ -1006,6 +1154,7 @@ struct DeviceDetailView: View {
         sendFileSection
         ironmouseAPSection
         ironmouseEthernetSection
+        timeSetSection
         powerSection
     }
     
@@ -1099,6 +1248,27 @@ struct DeviceDetailView: View {
             Button("Load Preview", action: loadPreview)
             Button("Launch noVNC", action: openNoVNC)
             previewView
+        }
+    }
+    
+    private var timeSetSection: some View {
+        Section("Time Set") {
+            Text("In most cases you shouldn't need to use this (and it probably won't work) but if you have automatic time sync off, this may be useful")
+            DatePicker(
+                "Date and Time",
+                selection: $selectedDate,
+                displayedComponents: [.date, .hourAndMinute]
+            )
+            
+            Button("Set Time From Manually") {
+                // TODO: Send selectedDate to API
+                print("Set device time to \(selectedDate)")
+            }
+            
+            Button("Set Time From Sys Clock") {
+                // TODO: Send selectedDate to API
+                print("Set device time to sys clock")
+            }
         }
     }
     
