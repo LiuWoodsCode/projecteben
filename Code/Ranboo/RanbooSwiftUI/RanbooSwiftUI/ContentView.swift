@@ -961,6 +961,7 @@ struct ContentView: View {
                     host: selectedHost.address,
                     isDemo: selectedHost.isDemo
                 )
+                .id(selectedHost.id)
             } else {
                 DevicePlaceholderView()
             }
