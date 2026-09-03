@@ -166,6 +166,38 @@ struct ThermalInfo {
     var pmic: Double?
 }
 
+struct ThrottleInfo: Decodable {
+    let raw: Int
+    let rawHex: String
+    let undervoltageDetected: Bool
+    let armFrequencyCapped: Bool
+    let currentlyThrottled: Bool
+    let softTemperatureLimitActive: Bool
+    let undervoltageHasOccurred: Bool
+    let armFrequencyCappingHasOccurred: Bool
+    let throttlingHasOccurred: Bool
+    let softTemperatureLimitHasOccurred: Bool
+    
+    enum CodingKeys: String, CodingKey {
+        case raw
+        case rawHex = "raw_hex"
+        case undervoltageDetected = "undervoltage_detected"
+        case armFrequencyCapped = "arm_frequency_capped"
+        case currentlyThrottled = "currently_throttled"
+        case softTemperatureLimitActive = "soft_temperature_limit_active"
+        case undervoltageHasOccurred = "undervoltage_has_occurred"
+        case armFrequencyCappingHasOccurred = "arm_frequency_capping_has_occurred"
+        case throttlingHasOccurred = "throttling_has_occurred"
+        case softTemperatureLimitHasOccurred = "soft_temperature_limit_has_occurred"
+    }
+}
+
+struct ThrottleResponse: Decodable {
+    let ok: Bool
+    let data: ThrottleInfo?
+    let error: String?
+}
+
 struct FanInfo: Decodable {
     let ok: Bool
     let control: String?
@@ -362,6 +394,15 @@ struct EbenAPIClient {
             throw EbenAPIError.api("The server returned an invalid temperature value.")
         }
         return ThermalInfo(cpu: cpu, gpu: gpu, pmic: pmic)
+    }
+    
+    func throttleInfo() async throws -> ThrottleInfo {
+        let (data, _) = try await request("/power/throttle")
+        let result = try JSONDecoder().decode(ThrottleResponse.self, from: data)
+        guard result.ok, let throttleInfo = result.data else {
+            throw EbenAPIError.api(result.error ?? "Unable to read throttling status.")
+        }
+        return throttleInfo
     }
     
     func fanInfo() async throws -> FanInfo {
@@ -582,6 +623,7 @@ final class DeviceViewModel: ObservableObject {
     @Published var memory: MemoryInfo?
     @Published var disks: [DiskInfo] = []
     @Published var thermal = ThermalInfo()
+    @Published var throttle: ThrottleInfo?
     @Published var fan: FanInfo?
     @Published var vnc = VNCStatusViewData()
     @Published var previewImage: PlatformImage?
@@ -654,6 +696,19 @@ final class DeviceViewModel: ObservableObject {
             pmic: 51.2
         )
         
+        throttle = ThrottleInfo(
+            raw: 0,
+            rawHex: "0x0",
+            undervoltageDetected: false,
+            armFrequencyCapped: false,
+            currentlyThrottled: false,
+            softTemperatureLimitActive: false,
+            undervoltageHasOccurred: false,
+            armFrequencyCappingHasOccurred: false,
+            throttlingHasOccurred: false,
+            softTemperatureLimitHasOccurred: false
+        )
+        
         fan = FanInfo(
             ok: true,
             control: "governor",
@@ -696,6 +751,7 @@ final class DeviceViewModel: ObservableObject {
         
         await loadResources()
         await loadThermal()
+        await loadThrottle()
         
         do {
             fan = try await api.fanInfo()
@@ -713,6 +769,7 @@ final class DeviceViewModel: ObservableObject {
     func refreshThermal() async {
         guard !isLoading else { return }
         await loadThermal()
+        await loadThrottle()
     }
     
     func refreshResources() async {
@@ -769,6 +826,16 @@ final class DeviceViewModel: ObservableObject {
     private func loadThermal() async {
         do {
             thermal = try await api.thermal()
+        } catch is CancellationError {
+            return
+        } catch {
+            errorMessage = HostChecker.describe(error)
+        }
+    }
+    
+    private func loadThrottle() async {
+        do {
+            throttle = try await api.throttleInfo()
         } catch is CancellationError {
             return
         } catch {
@@ -1016,7 +1083,8 @@ struct DevicePlaceholderView: View {
         ContentUnavailableView(
             "Select a Device",
             systemImage: "desktopcomputer",
-            description: Text(randomDescriptionDevJokes)
+            description: Text("青葉真司をファッ")
+            // description: Text(randomDescriptionDevJokes)
         )
     }
 }
@@ -1072,8 +1140,7 @@ struct DeviceDetailView: View {
     @State private var pendingPowerAction: PowerAction?
     @State private var selectedDate = Date()
     @State private var isConfirmingHyprlandRestart = false
-    @State private var pendingIronmouseApAction: IronmouseApAction?
-    @State private var pendingIronmouseEthAction: IronmouseEthAction?
+    @State private var pendingIronmouseAction: IronmouseAction?
     @State private var isShowingFileImporter = false
     @State private var selectedPhotoItem: PhotosPickerItem?
     @Environment(\.openURL) private var openURL
@@ -1112,8 +1179,7 @@ struct DeviceDetailView: View {
                 model: model,
                 pendingPowerAction: $pendingPowerAction,
                 isConfirmingHyprlandRestart: $isConfirmingHyprlandRestart,
-                pendingIronmouseApAction: $pendingIronmouseApAction,
-                pendingIronmouseEthAction: $pendingIronmouseEthAction
+                pendingIronmouseAction: $pendingIronmouseAction
             ))
     }
     
@@ -1146,6 +1212,7 @@ struct DeviceDetailView: View {
         memorySection
         disksSection
         thermalSection
+        throttlingSection
     }
     
     @ViewBuilder
@@ -1235,6 +1302,25 @@ struct DeviceDetailView: View {
         }
     }
     
+    @ViewBuilder
+    private var throttlingSection: some View {
+        Section("Throttling") {
+            if let throttle = model.throttle {
+                LabeledContent("Currently throttled", value: yesNo(throttle.currentlyThrottled))
+                LabeledContent("Undervoltage detected", value: yesNo(throttle.undervoltageDetected))
+                LabeledContent("ARM frequency capped", value: yesNo(throttle.armFrequencyCapped))
+                LabeledContent("Soft temperature limit", value: yesNo(throttle.softTemperatureLimitActive))
+                LabeledContent("Throttling has occurred", value: yesNo(throttle.throttlingHasOccurred))
+                LabeledContent("Undervoltage has occurred", value: yesNo(throttle.undervoltageHasOccurred))
+                LabeledContent("Frequency capping has occurred", value: yesNo(throttle.armFrequencyCappingHasOccurred))
+                LabeledContent("Soft temperature limit has occurred", value: yesNo(throttle.softTemperatureLimitHasOccurred))
+                LabeledContent("Raw status", value: throttle.rawHex)
+            } else {
+                Text("No throttling data").foregroundStyle(.secondary)
+            }
+        }
+    }
+    
     private var remoteDesktopSection: some View {
         Section("Remote Desktop") {
             Text(model.vnc.description).foregroundStyle(.secondary)
@@ -1300,10 +1386,9 @@ struct DeviceDetailView: View {
     
     private var ironmouseAPSection: some View {
         Section("Ironmouse AP") {
-            Text("Ironmouse actions are currently broken, they will enable/disable both AP and Eth. DO NOT USE!!")
-            ForEach(IronmouseApAction.allCases) { action in
+            ForEach(IronmouseAction.apActions) { action in
                 Button(action.title, role: action.role) {
-                    pendingIronmouseApAction = action
+                    pendingIronmouseAction = action
                 }
             }
         }
@@ -1311,10 +1396,9 @@ struct DeviceDetailView: View {
     
     private var ironmouseEthernetSection: some View {
         Section("Ironmouse Eth") {
-            Text("Ironmouse actions are currently broken, they will enable/disable both AP and Eth. DO NOT USE!!")
-            ForEach(IronmouseEthAction.allCases) { action in
+            ForEach(IronmouseAction.ethernetActions) { action in
                 Button(action.title, role: action.role) {
-                    pendingIronmouseEthAction = action
+                    pendingIronmouseAction = action
                 }
             }
         }
@@ -1357,6 +1441,10 @@ struct DeviceDetailView: View {
         Button(title, role: role) {
             Task { await model.runVNC(path) }
         }
+    }
+    
+    private func yesNo(_ value: Bool) -> String {
+        value ? "Yes" : "No"
     }
     
     private func refreshDevice() {
@@ -1535,8 +1623,7 @@ private struct DeviceConfirmationDialogs: ViewModifier {
     @ObservedObject var model: DeviceViewModel
     @Binding var pendingPowerAction: PowerAction?
     @Binding var isConfirmingHyprlandRestart: Bool
-    @Binding var pendingIronmouseApAction: IronmouseApAction?
-    @Binding var pendingIronmouseEthAction: IronmouseEthAction?
+    @Binding var pendingIronmouseAction: IronmouseAction?
     
     func body(content: Content) -> some View {
         content
@@ -1555,17 +1642,10 @@ private struct DeviceConfirmationDialogs: ViewModifier {
                 message: hyprlandMessage
             )
             .confirmationDialog(
-                apDialogTitle,
-                isPresented: apDialogBinding,
+                ironmouseDialogTitle,
+                isPresented: ironmouseDialogBinding,
                 titleVisibility: .visible,
-                actions: apDialogActions,
-                message: immediateActionMessage
-            )
-            .confirmationDialog(
-                ethernetDialogTitle,
-                isPresented: ethernetDialogBinding,
-                titleVisibility: .visible,
-                actions: ethernetDialogActions,
+                actions: ironmouseDialogActions,
                 message: immediateActionMessage
             )
     }
@@ -1575,14 +1655,9 @@ private struct DeviceConfirmationDialogs: ViewModifier {
         return "\(action.title) \(model.host)?"
     }
     
-    private var apDialogTitle: String {
-        guard let action = pendingIronmouseApAction else { return "Ironmouse AP action" }
-        return "\(action.title) Ironmouse AP?"
-    }
-    
-    private var ethernetDialogTitle: String {
-        guard let action = pendingIronmouseEthAction else { return "Ironmouse Ethernet action" }
-        return "\(action.title) Ironmouse Ethernet?"
+    private var ironmouseDialogTitle: String {
+        guard let action = pendingIronmouseAction else { return "Ironmouse action" }
+        return "\(action.title) Ironmouse \(action.targetTitle)?"
     }
     
     private var powerDialogBinding: Binding<Bool> {
@@ -1592,17 +1667,10 @@ private struct DeviceConfirmationDialogs: ViewModifier {
         )
     }
     
-    private var apDialogBinding: Binding<Bool> {
+    private var ironmouseDialogBinding: Binding<Bool> {
         Binding(
-            get: { pendingIronmouseApAction != nil },
-            set: { isPresented in if !isPresented { pendingIronmouseApAction = nil } }
-        )
-    }
-    
-    private var ethernetDialogBinding: Binding<Bool> {
-        Binding(
-            get: { pendingIronmouseEthAction != nil },
-            set: { isPresented in if !isPresented { pendingIronmouseEthAction = nil } }
+            get: { pendingIronmouseAction != nil },
+            set: { isPresented in if !isPresented { pendingIronmouseAction = nil } }
         )
     }
     
@@ -1626,25 +1694,14 @@ private struct DeviceConfirmationDialogs: ViewModifier {
     }
     
     @ViewBuilder
-    private func apDialogActions() -> some View {
-        if let action = pendingIronmouseApAction {
+    private func ironmouseDialogActions() -> some View {
+        if let action = pendingIronmouseAction {
             Button(action.title, role: action.role) {
-                pendingIronmouseApAction = nil
+                pendingIronmouseAction = nil
                 Task { await model.power(action.path) }
             }
         }
-        Button("Cancel", role: .cancel) { pendingIronmouseApAction = nil }
-    }
-    
-    @ViewBuilder
-    private func ethernetDialogActions() -> some View {
-        if let action = pendingIronmouseEthAction {
-            Button(action.title, role: action.role) {
-                pendingIronmouseEthAction = nil
-                Task { await model.power(action.path) }
-            }
-        }
-        Button("Cancel", role: .cancel) { pendingIronmouseEthAction = nil }
+        Button("Cancel", role: .cancel) { pendingIronmouseAction = nil }
     }
     
     private func immediateActionMessage() -> some View {
@@ -1768,46 +1825,41 @@ enum PowerAction: String, CaseIterable, Identifiable {
         }
     }
 }
-// stuff's completely bugged right now, DO NOT USE THE IRONMOUSE ACTIONS RIGHT NOW
-enum IronmouseApAction: String, CaseIterable, Identifiable {
-    case enable, disable
+enum IronmouseAction: String, Identifiable {
+    case enableAP
+    case disableAP
+    case enableEthernet
+    case disableEthernet
+    
+    static let apActions: [IronmouseAction] = [.enableAP, .disableAP]
+    static let ethernetActions: [IronmouseAction] = [.enableEthernet, .disableEthernet]
     
     var id: String { rawValue }
-    var path: String { "/ironmouse/ap/\(rawValue)" }
+    
+    var path: String {
+        switch self {
+        case .enableAP: return "/ironmouse/ap/enable"
+        case .disableAP: return "/ironmouse/ap/disable"
+        case .enableEthernet: return "/ironmouse/eth/enable"
+        case .disableEthernet: return "/ironmouse/eth/disable"
+        }
+    }
     
     var title: String {
         switch self {
-        case .enable: return "Enable"
-        case .disable: return "Disable"
+        case .enableAP, .enableEthernet: return "Enable"
+        case .disableAP, .disableEthernet: return "Disable"
         }
     }
     
-    var role: ButtonRole? {
+    var targetTitle: String {
         switch self {
-        case .enable, .disable: return nil
-        }
-    }
-}
-
-
-enum IronmouseEthAction: String, CaseIterable, Identifiable {
-    case enable, disable
-    
-    var id: String { rawValue }
-    var path: String { "/ironmouse/eth/\(rawValue)" }
-    
-    var title: String {
-        switch self {
-        case .enable: return "Enable"
-        case .disable: return "Disable"
+        case .enableAP, .disableAP: return "AP"
+        case .enableEthernet, .disableEthernet: return "Ethernet"
         }
     }
     
-    var role: ButtonRole? {
-        switch self {
-        case .enable, .disable: return nil
-        }
-    }
+    var role: ButtonRole? { nil }
 }
 
 #Preview {
