@@ -74,7 +74,7 @@ struct ServiceState {
             case .online(let detail):
                 return detail.map { "Online (\($0))" } ?? "Online"
             case .offline(let error):
-                return "Error: \(error)"
+                return "\(error)"
             }
         }
         
@@ -124,6 +124,7 @@ struct DeviceInfo {
     var serial = ""
     var revision = ""
     var kernelVersion = ""
+    var cmdline = ""
     var uptime = ""
 }
 
@@ -351,6 +352,7 @@ struct EbenAPIClient {
         async let serial = text("/device/serial")
         async let revision = text("/device/revision")
         async let kernelVersion = text("/kernel/version")
+        async let cmdline = text("/kernel/cmdline")
         async let uptime = text("/session/uptime")
         
         return try await DeviceInfo(
@@ -644,7 +646,7 @@ final class DeviceViewModel: ObservableObject {
         self.host = host
         self.isDemo = isDemo
     }
-
+    
     func loadDemoData() {
         info = DeviceInfo(
             model: "RanbooSwiftUI demo device",
@@ -778,11 +780,11 @@ final class DeviceViewModel: ObservableObject {
     }
     
     private var isLowPowerMode: Bool {
-    #if os(iOS)
+#if os(iOS)
         ProcessInfo.processInfo.isLowPowerModeEnabled
-    #else
+#else
         false
-    #endif
+#endif
     }
     
     func monitor() async {
@@ -1054,24 +1056,24 @@ struct DevicePlaceholderView: View {
     ].randomElement()!
     
     static var deviceType: String {
-    #if os(visionOS)
+#if os(visionOS)
         return "Apple Vision"
-    #elseif os(iOS)
+#elseif os(iOS)
         switch UIDevice.current.userInterfaceIdiom {
-            case .phone: return "iPhone"
-            case .pad: return "iPad"
-            case .carPlay: return "CarPlay"
-            default: return "Unknown iOS device)"
+        case .phone: return "iPhone"
+        case .pad: return "iPad"
+        case .carPlay: return "CarPlay"
+        default: return "Unknown iOS device)"
         }
-    #elseif os(macOS)
+#elseif os(macOS)
         return "Mac"
-    #elseif os(tvOS)
+#elseif os(tvOS)
         return "Apple TV" // How??
-    #elseif os(watchOS)
+#elseif os(watchOS)
         return "Apple Watch" // How??
-    #else
+#else
         return "Unknown"
-    #endif
+#endif
     }
     
     // for production
@@ -1207,8 +1209,10 @@ struct DeviceDetailView: View {
     
     @ViewBuilder
     private var primarySections: some View {
+        errorSection
         loadingSection
         deviceSection
+        osSection
         memorySection
         disksSection
         thermalSection
@@ -1230,7 +1234,6 @@ struct DeviceDetailView: View {
     private var feedbackSections: some View {
         debugSection
         statusSection
-        errorSection
     }
     
     @ViewBuilder
@@ -1247,11 +1250,15 @@ struct DeviceDetailView: View {
             LabeledContent("Serial", value: display(model.info.serial))
             LabeledContent("Revision", value: display(model.info.revision))
             uptimeRow
-            LabeledContent("Kernel", value: display(model.info.kernelVersion))
-            Button("Go to Ranboo WebUI", action: openRanbooWebUI)
         }
     }
     
+    private var osSection: some View {
+        Section("Operating System") {
+            LabeledContent("Kernel", value: display(model.info.kernelVersion))
+            LabeledContent("Cmdline", value: display(model.info.cmdline))
+        }
+    }
     private var uptimeRow: some View {
         TimelineView(.periodic(from: .now, by: 1)) { context in
             let value = formattedUptime(at: context.date)
@@ -1416,7 +1423,10 @@ struct DeviceDetailView: View {
     
     private var debugSection: some View {
         let text = "IP: \(model.host)\nisLoading: \(model.isLoading)\nLPM throttled: \(model.isThrottledBecauseOfLPM)"
-        return Section("Debug Info") { Text(text).monospaced() }
+        return Section("Debug") {
+            Text(text).monospaced()
+            Button("Go to Ranboo WebUI", action: openRanbooWebUI)
+        }
     }
     
     @ViewBuilder
