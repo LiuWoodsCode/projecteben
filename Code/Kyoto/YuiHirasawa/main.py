@@ -286,8 +286,6 @@ class Taskbar(Gtk.Window):
         self._desktop_icon_cache: dict[tuple[str, str], tuple[str, str]] = {}
 
         self.set_decorated(False)
-        self.set_resizable(False)
-        self.set_default_size(1, self.HEIGHT)
         self.connect("destroy", lambda *_: Gtk.main_quit())
 
         GtkLayerShell.init_for_window(self)
@@ -303,6 +301,12 @@ class Taskbar(Gtk.Window):
         self._task_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
         self._task_box.set_hexpand(True)
         self.add(self._task_box)
+
+        # gtk-layer-shell's GTK 3 API sizes the surface from the widget's size
+        # request.  resize(1, 1) forces it to discard the previous allocation;
+        # the left/right anchors still make the compositor provide full width.
+        self.set_size_request(-1, self.HEIGHT)
+        self.resize(1, 1)
         GLib.timeout_add(100, self._refresh_tick)
 
     def _install_css(self):
