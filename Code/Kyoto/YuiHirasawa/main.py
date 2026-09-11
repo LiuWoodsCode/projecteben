@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import getpass
 import re
 import select
 import sys
@@ -274,6 +275,163 @@ class WaylandWindowCollector:
                 print(f"taskbar: {action} failed: {exc}", file=sys.stderr)
 
 
+class ApplicationLauncher(Gtk.Window):
+    WIDTH = 340
+    HEIGHT = 440
+
+    def __init__(self):
+        super().__init__(title="Applications")
+        self.set_decorated(False)
+        self.set_resizable(False)
+        self.connect("key-press-event", self._on_key_press)
+
+        GtkLayerShell.init_for_window(self)
+        GtkLayerShell.set_layer(self, GtkLayerShell.Layer.OVERLAY)
+        GtkLayerShell.set_anchor(self, GtkLayerShell.Edge.LEFT, True)
+        GtkLayerShell.set_anchor(self, GtkLayerShell.Edge.BOTTOM, True)
+        # The taskbar's exclusive zone already makes this edge sit immediately
+        # above the bar.  An additional margin would leave a taskbar-sized gap.
+        GtkLayerShell.set_margin(self, GtkLayerShell.Edge.BOTTOM, 0)
+        GtkLayerShell.set_exclusive_zone(self, 0)
+        GtkLayerShell.set_keyboard_mode(self, GtkLayerShell.KeyboardMode.ON_DEMAND)
+        GtkLayerShell.set_namespace(self, "application-launcher")
+
+        self.set_size_request(self.WIDTH, self.HEIGHT)
+        self.add(self._build_content())
+
+    def _build_content(self) -> Gtk.Widget:
+        outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        outer.get_style_context().add_class("launcher")
+
+        header = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
+        user = Gtk.Label(label=getpass.getuser(), xalign=0)
+        user.get_style_context().add_class("launcher-user")
+        user.set_hexpand(True)
+        header.pack_start(user, True, True, 0)
+
+        power = Gtk.MenuButton()
+        power.set_tooltip_text("Power options")
+        power.add(Gtk.Image.new_from_icon_name("system-shutdown-symbolic", Gtk.IconSize.BUTTON))
+        power.set_popup(self._power_menu())
+        header.pack_end(power, False, False, 0)
+        outer.pack_start(header, False, False, 0)
+
+        separator = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)
+        outer.pack_start(separator, False, False, 0)
+
+        scroller = Gtk.ScrolledWindow()
+        scroller.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        app_list = Gtk.ListBox()
+        app_list.set_selection_mode(Gtk.SelectionMode.NONE)
+        app_list.get_style_context().add_class("application-list")
+        for app in self._applications():
+            app_list.add(self._app_row(app))
+        scroller.add(app_list)
+        outer.pack_start(scroller, True, True, 0)
+        return outer
+
+    def _app_row(self, app: Gio.DesktopAppInfo) -> Gtk.Widget:
+        row = Gtk.ListBoxRow()
+        button = Gtk.Button()
+        button.get_style_context().add_class("application-button")
+        content = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=7)
+        icon = app.get_icon()
+        image = Gtk.Image.new_from_gicon(icon, Gtk.IconSize.MENU) if icon else \
+            Gtk.Image.new_from_icon_name("application-x-executable", Gtk.IconSize.MENU)
+        content.pack_start(image, False, False, 0)
+        content.pack_start(Gtk.Label(label=app.get_display_name(), xalign=0), True, True, 0)
+        button.add(content)
+        button.connect("clicked", self._launch_app, app)
+        row.add(button)
+        return row
+
+    @staticmethod
+    def _applications() -> list[Gio.DesktopAppInfo]:
+        apps: list[Gio.DesktopAppInfo] = []
+        seen: set[str] = set()
+        for desktop_file in Taskbar._desktop_files():
+            desktop_id = desktop_file.name
+            if desktop_id in seen:
+                continue
+            try:
+                app = Gio.DesktopAppInfo.new_from_filename(str(desktop_file))
+                if app is None or not app.should_show():
+                    continue
+                seen.add(desktop_id)
+                apps.append(app)
+            except Exception:
+                continue
+        return sorted(apps, key=lambda app: app.get_display_name().casefold())
+
+    def _launch_app(self, _button: Gtk.Button, app: Gio.DesktopAppInfo) -> None:
+        try:
+            app.launch([], None)
+            self.hide()
+        except GLib.Error as exc:
+            self._show_error(f"Could not launch {app.get_display_name()}", exc.message)
+
+    def _power_menu(self) -> Gtk.Menu:
+        menu = Gtk.Menu()
+        actions = (
+            ("Lock", ("loginctl", "lock-session"), False),
+            ("Suspend", ("systemctl", "suspend"), True),
+            ("Restart", ("systemctl", "reboot"), True),
+            ("Power Off", ("systemctl", "poweroff"), True),
+        )
+        for label, command, confirm in actions:
+            item = Gtk.MenuItem(label=label)
+            item.connect("activate", self._power_action, label, command, confirm)
+            menu.append(item)
+        menu.show_all()
+        return menu
+
+    def _power_action(self, _item: Gtk.MenuItem, label: str, command: tuple[str, ...], confirm: bool) -> None:
+        if confirm:
+            dialog = Gtk.MessageDialog(
+                transient_for=self,
+                modal=True,
+                message_type=Gtk.MessageType.QUESTION,
+                buttons=Gtk.ButtonsType.CANCEL,
+                text=f"{label}?",
+            )
+            dialog.format_secondary_text("Any unsaved work may be lost.")
+            dialog.add_button(label, Gtk.ResponseType.OK)
+            response = dialog.run()
+            dialog.destroy()
+            if response != Gtk.ResponseType.OK:
+                return
+        try:
+            Gio.Subprocess.new(command, Gio.SubprocessFlags.NONE)
+            self.hide()
+        except GLib.Error as exc:
+            self._show_error(f"Could not {label.lower()}", exc.message)
+
+    def _show_error(self, title: str, detail: str) -> None:
+        dialog = Gtk.MessageDialog(
+            transient_for=self,
+            modal=True,
+            message_type=Gtk.MessageType.ERROR,
+            buttons=Gtk.ButtonsType.CLOSE,
+            text=title,
+        )
+        dialog.format_secondary_text(detail)
+        dialog.run()
+        dialog.destroy()
+
+    def _on_key_press(self, _window: Gtk.Window, event: Gdk.EventKey) -> bool:
+        if event.keyval == Gdk.KEY_Escape:
+            self.hide()
+            return True
+        return False
+
+    def toggle(self) -> None:
+        if self.get_visible():
+            self.hide()
+        else:
+            self.show_all()
+            self.present()
+
+
 class Taskbar(Gtk.Window):
     HEIGHT = 48
     ICON_SIZE = 32
@@ -284,6 +442,7 @@ class Taskbar(Gtk.Window):
         self._groups: dict[str, list[WindowInfo]] = {}
         self._buttons: dict[str, Gtk.Button] = {}
         self._desktop_icon_cache: dict[tuple[str, str], tuple[str, str]] = {}
+        self._launcher = ApplicationLauncher()
 
         self.set_decorated(False)
         self.connect("destroy", lambda *_: Gtk.main_quit())
@@ -298,9 +457,15 @@ class Taskbar(Gtk.Window):
         GtkLayerShell.set_namespace(self, "wlroots-taskbar")
 
         self._install_css()
+        bar = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
+        launch_button = Gtk.Button(label="Launch")
+        launch_button.get_style_context().add_class("launch-button")
+        launch_button.connect("clicked", lambda *_: self._launcher.toggle())
+        bar.pack_start(launch_button, False, False, 0)
         self._task_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
         self._task_box.set_hexpand(True)
-        self.add(self._task_box)
+        bar.pack_start(self._task_box, True, True, 0)
+        self.add(bar)
 
         # gtk-layer-shell's GTK 3 API sizes the surface from the widget's size
         # request.  resize(1, 1) forces it to discard the previous allocation;
@@ -317,6 +482,16 @@ class Taskbar(Gtk.Window):
             color: white; min-height: 28px; min-width: 34px; padding: 1px 6px; }
         button.taskbar-button:hover { background: #404040; }
         button.taskbar-button.active { background: #34445a; border-color: #7fb5ff; }
+        button.launch-button { background: #3a3a3a; border: 1px solid #606060; border-radius: 0;
+            color: white; min-height: 28px; padding: 1px 16px; font-weight: bold; }
+        button.launch-button:hover { background: #4a4a4a; }
+        .launcher { background: #202020; padding: 7px; }
+        .launcher-user { color: white; font-size: 14px; font-weight: bold; }
+        .application-list { background: #202020; }
+        .application-list row { min-height: 0; padding: 0; }
+        button.application-button { background: transparent; border: 0; border-radius: 0;
+            color: white; min-height: 22px; padding: 1px 5px; }
+        button.application-button:hover { background: #3b4654; }
         """)
         Gtk.StyleContext.add_provider_for_screen(self.get_screen(), provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
 
