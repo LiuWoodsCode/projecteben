@@ -1207,6 +1207,13 @@ class ApplicationLauncher(Gtk.Window):
 class Taskbar(Gtk.Window):
     HEIGHT = 36
     ICON_SIZE = 32
+    STATUS_ICON_SIZE = 24
+    STATUS_PLACEHOLDERS = (
+        ("network", "Network", "assets/icons/network/wifi/dark/4.svg"),
+        ("bt", "Bluetooth", "assets/icons/settings/bluetooth.svg"),
+        ("audio", "Audio", "assets/icons/volume/3.svg"),
+        ("pwr", "Battery", "assets/icons/battery/normal/10.svg"),
+    )
 
     def __init__(self):
         super().__init__(title="Taskbar")
@@ -1240,6 +1247,15 @@ class Taskbar(Gtk.Window):
         status_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=1)
         self._tray = SystemTray()
         status_box.pack_start(self._tray, False, False, 0)
+        placeholder_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        for icon_type, tooltip, icon_path in self.STATUS_PLACEHOLDERS:
+            placeholder_box.pack_start(
+                self._status_placeholder_button(icon_type, tooltip, icon_path),
+                False,
+                False,
+                0,
+            )
+        status_box.pack_start(placeholder_box, False, False, 0)
         self._clock = Gtk.Label()
         self._clock.get_style_context().add_class("clock")
         status_box.pack_start(self._clock, False, False, 0)
@@ -1254,6 +1270,35 @@ class Taskbar(Gtk.Window):
         self._update_clock()
         GLib.timeout_add_seconds(1, self._update_clock)
         GLib.timeout_add(100, self._refresh_tick)
+
+    def _status_placeholder_button(
+            self, icon_type: str, tooltip: str, relative_path: str) -> Gtk.Button:
+        button = Gtk.Button()
+        button.get_style_context().add_class("system-status-button")
+        icon_path = Path(__file__).resolve().parent / relative_path
+        try:
+            pixbuf = GdkPixbuf.Pixbuf.new_from_file_at_scale(
+                str(icon_path), self.STATUS_ICON_SIZE, self.STATUS_ICON_SIZE, False
+            )
+            button.add(Gtk.Image.new_from_pixbuf(pixbuf))
+        except GLib.Error as exc:
+            print(f"taskbar: could not load {icon_path}: {exc}", file=sys.stderr)
+            button.add(Gtk.Image.new_from_icon_name("image-missing", Gtk.IconSize.DIALOG))
+        button.set_tooltip_text(tooltip)
+        button.connect("clicked", self._show_status_placeholder, icon_type)
+        return button
+
+    def _show_status_placeholder(
+            self, _button: Gtk.Button, icon_type: str) -> None:
+        dialog = Gtk.MessageDialog(
+            transient_for=self,
+            modal=True,
+            message_type=Gtk.MessageType.INFO,
+            buttons=Gtk.ButtonsType.OK,
+            text=f"{icon_type} is not currently implemented.",
+        )
+        dialog.run()
+        dialog.destroy()
 
     def _update_clock(self) -> bool:
         now = GLib.DateTime.new_now_local()
@@ -1272,6 +1317,9 @@ class Taskbar(Gtk.Window):
         button.tray-button { background: transparent; border: 0; border-radius: 0;
             min-width: 32px; min-height: 32px; padding: 0; }
         button.tray-button:hover { background: #404040; }
+        button.system-status-button { background: transparent; border: 0; border-radius: 0;
+            min-width: 24px; min-height: 32px; padding: 0; }
+        button.system-status-button:hover { background: #404040; }
         .clock { color: white; min-width: 48px; padding: 0 6px 0 1px; }
         button.launch-button { background: #3a3a3a; border: 1px solid #606060; border-radius: 0;
             color: white; min-height: 28px; padding: 1px 16px; font-weight: bold; }
