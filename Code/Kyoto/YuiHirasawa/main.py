@@ -277,6 +277,38 @@ class WaylandWindowCollector:
 TRAY_ICON_SIZE = 32
 
 
+def _fixed_icon_image(pixbuf: GdkPixbuf.Pixbuf, size: int) -> Gtk.Image:
+    """Return an image whose natural size cannot exceed the requested square."""
+    width, height = pixbuf.get_width(), pixbuf.get_height()
+    if width <= 0 or height <= 0:
+        image = Gtk.Image()
+        image.set_size_request(size, size)
+        return image
+    scale = size / max(width, height)
+    scaled_width = max(1, min(size, round(width * scale)))
+    scaled_height = max(1, min(size, round(height * scale)))
+    if (width, height) != (scaled_width, scaled_height):
+        pixbuf = pixbuf.scale_simple(
+            scaled_width, scaled_height, GdkPixbuf.InterpType.BILINEAR
+        )
+    canvas = GdkPixbuf.Pixbuf.new(
+        GdkPixbuf.Colorspace.RGB, True, 8, size, size
+    )
+    canvas.fill(0x00000000)
+    pixbuf.copy_area(
+        0,
+        0,
+        scaled_width,
+        scaled_height,
+        canvas,
+        (size - scaled_width) // 2,
+        (size - scaled_height) // 2,
+    )
+    image = Gtk.Image.new_from_pixbuf(canvas)
+    image.set_size_request(size, size)
+    return image
+
+
 @dataclass(frozen=True)
 class TrayItem:
     key: str
@@ -875,7 +907,7 @@ class SystemTray(Gtk.Box):
                     pixbuf = GdkPixbuf.Pixbuf.new_from_file_at_scale(
                         str(candidate), self.ICON_SIZE, self.ICON_SIZE, True
                     )
-                    return Gtk.Image.new_from_pixbuf(pixbuf)
+                    return _fixed_icon_image(pixbuf, self.ICON_SIZE)
                 except GLib.Error:
                     pass
         if item.icon_name and theme.has_icon(item.icon_name):
@@ -885,7 +917,7 @@ class SystemTray(Gtk.Box):
                     self.ICON_SIZE,
                     Gtk.IconLookupFlags.FORCE_SIZE,
                 )
-                return Gtk.Image.new_from_pixbuf(pixbuf)
+                return _fixed_icon_image(pixbuf, self.ICON_SIZE)
             except GLib.Error:
                 pass
         if item.icon_name and os.path.isfile(item.icon_name):
@@ -893,7 +925,7 @@ class SystemTray(Gtk.Box):
                 pixbuf = GdkPixbuf.Pixbuf.new_from_file_at_scale(
                     item.icon_name, self.ICON_SIZE, self.ICON_SIZE, True
                 )
-                return Gtk.Image.new_from_pixbuf(pixbuf)
+                return _fixed_icon_image(pixbuf, self.ICON_SIZE)
             except GLib.Error:
                 pass
         if item.icon_rgba:
@@ -901,17 +933,18 @@ class SystemTray(Gtk.Box):
                 GLib.Bytes.new(item.icon_rgba), GdkPixbuf.Colorspace.RGB, True, 8,
                 item.icon_width, item.icon_height, item.icon_width * 4,
             )
-            scaled = pixbuf.scale_simple(self.ICON_SIZE, self.ICON_SIZE, GdkPixbuf.InterpType.BILINEAR)
-            return Gtk.Image.new_from_pixbuf(scaled)
+            return _fixed_icon_image(pixbuf, self.ICON_SIZE)
         try:
             pixbuf = theme.load_icon(
                 "image-missing",
                 self.ICON_SIZE,
                 Gtk.IconLookupFlags.FORCE_SIZE,
             )
-            return Gtk.Image.new_from_pixbuf(pixbuf)
+            return _fixed_icon_image(pixbuf, self.ICON_SIZE)
         except GLib.Error:
-            return Gtk.Image.new_from_icon_name("image-missing", Gtk.IconSize.DIALOG)
+            image = Gtk.Image()
+            image.set_size_request(self.ICON_SIZE, self.ICON_SIZE)
+            return image
 
     def _activate(self, _button: Gtk.Button, key: str) -> None:
         item = self._items.get(key)
@@ -1280,10 +1313,12 @@ class Taskbar(Gtk.Window):
             pixbuf = GdkPixbuf.Pixbuf.new_from_file_at_scale(
                 str(icon_path), self.STATUS_ICON_SIZE, self.STATUS_ICON_SIZE, False
             )
-            button.add(Gtk.Image.new_from_pixbuf(pixbuf))
+            button.add(_fixed_icon_image(pixbuf, self.STATUS_ICON_SIZE))
         except GLib.Error as exc:
             print(f"taskbar: could not load {icon_path}: {exc}", file=sys.stderr)
-            button.add(Gtk.Image.new_from_icon_name("image-missing", Gtk.IconSize.DIALOG))
+            image = Gtk.Image()
+            image.set_size_request(self.STATUS_ICON_SIZE, self.STATUS_ICON_SIZE)
+            button.add(image)
         button.set_tooltip_text(tooltip)
         button.connect("clicked", self._show_status_placeholder, icon_type)
         return button
@@ -1405,16 +1440,26 @@ class Taskbar(Gtk.Window):
         if kind == "path":
             try:
                 pixbuf = GdkPixbuf.Pixbuf.new_from_file_at_scale(value, self.ICON_SIZE, self.ICON_SIZE, True)
-                return Gtk.Image.new_from_pixbuf(pixbuf)
+                return _fixed_icon_image(pixbuf, self.ICON_SIZE)
             except Exception:
                 pass
         elif kind == "theme":
             try:
                 pixbuf = Gtk.IconTheme.get_default().load_icon(value, self.ICON_SIZE, Gtk.IconLookupFlags.FORCE_SIZE)
-                return Gtk.Image.new_from_pixbuf(pixbuf)
+                return _fixed_icon_image(pixbuf, self.ICON_SIZE)
             except Exception:
                 pass
-        return Gtk.Image.new_from_icon_name("application-x-executable", Gtk.IconSize.DIALOG)
+        try:
+            pixbuf = Gtk.IconTheme.get_default().load_icon(
+                "application-x-executable",
+                self.ICON_SIZE,
+                Gtk.IconLookupFlags.FORCE_SIZE,
+            )
+            return _fixed_icon_image(pixbuf, self.ICON_SIZE)
+        except Exception:
+            image = Gtk.Image()
+            image.set_size_request(self.ICON_SIZE, self.ICON_SIZE)
+            return image
 
     def _desktop_icon_spec(self, app_id: str, title: str) -> tuple[str, str]:
         key = (app_id, title)
