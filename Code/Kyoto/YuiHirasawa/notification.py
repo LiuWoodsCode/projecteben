@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import html
+import logging
 import os
 import urllib.parse
 
@@ -15,7 +16,18 @@ gi.require_version("Gtk", "3.0")
 gi.require_version("Gdk", "3.0")
 gi.require_version("GdkPixbuf", "2.0")
 
+try:
+    gi.require_version("GtkLayerShell", "0.1")
+    from gi.repository import GtkLayerShell
+
+    GTK_LAYER_SHELL_AVAILABLE = True
+except (ImportError, ValueError):
+    GtkLayerShell = None
+    GTK_LAYER_SHELL_AVAILABLE = False
+
 from gi.repository import Gdk, GdkPixbuf, GLib, Gtk, Pango
+
+LOGGER = logging.getLogger("pixelnotify")
 
 # Optional GI-backed sound playback.
 try:
@@ -80,8 +92,11 @@ class NotificationBanner(Gtk.Window):
 
     _css_installed = False
 
-    def __init__(self):
-        super().__init__(type=Gtk.WindowType.POPUP)
+    def __init__(self, monitor=None):
+        super().__init__(type=Gtk.WindowType.TOPLEVEL)
+
+        self._uses_layer_shell = GTK_LAYER_SHELL_AVAILABLE
+        self._layout_size = (self.WIDTH, self.MIN_HEIGHT)
 
         self.set_decorated(False)
         self.set_resizable(False)
@@ -90,9 +105,26 @@ class NotificationBanner(Gtk.Window):
         self.set_skip_pager_hint(True)
         self.set_accept_focus(False)
         self.set_focus_on_map(False)
+        self.set_can_focus(False)
         self.set_type_hint(Gdk.WindowTypeHint.NOTIFICATION)
         self.set_app_paintable(True)
         self.set_size_request(self.WIDTH, self.MIN_HEIGHT)
+
+        if self._uses_layer_shell:
+            GtkLayerShell.init_for_window(self)
+            GtkLayerShell.set_layer(self, GtkLayerShell.Layer.OVERLAY)
+            GtkLayerShell.set_anchor(self, GtkLayerShell.Edge.RIGHT, True)
+            GtkLayerShell.set_anchor(self, GtkLayerShell.Edge.BOTTOM, True)
+            GtkLayerShell.set_anchor(self, GtkLayerShell.Edge.LEFT, False)
+            GtkLayerShell.set_anchor(self, GtkLayerShell.Edge.TOP, False)
+            GtkLayerShell.set_exclusive_zone(self, 0)
+            GtkLayerShell.set_keyboard_mode(
+                self,
+                GtkLayerShell.KeyboardMode.NONE,
+            )
+            GtkLayerShell.set_namespace(self, "pixelnotify")
+            if monitor is not None:
+                GtkLayerShell.set_monitor(self, monitor)
 
         screen = self.get_screen()
         if screen is not None:
@@ -169,6 +201,43 @@ class NotificationBanner(Gtk.Window):
         self.show_all()
         self.icon.hide()
         self.hide()
+
+    def place(self, x, y, width, height, monitor_geometry):
+        """Position the banner on both Wayland and traditional desktops."""
+        x = int(x)
+        y = int(y)
+        width = max(1, int(width))
+        height = max(1, int(height))
+
+        self._layout_size = (width, height)
+
+        if self._uses_layer_shell:
+            right_margin = (
+                monitor_geometry.x + monitor_geometry.width - (x + width)
+            )
+            bottom_margin = (
+                monitor_geometry.y + monitor_geometry.height - (y + height)
+            )
+            GtkLayerShell.set_margin(
+                self,
+                GtkLayerShell.Edge.RIGHT,
+                right_margin,
+            )
+            GtkLayerShell.set_margin(
+                self,
+                GtkLayerShell.Edge.BOTTOM,
+                bottom_margin,
+            )
+        else:
+            self.move(x, y)
+
+        # Layer-shell surfaces follow widget size requests rather than normal
+        # toplevel resize negotiations.
+        self.set_size_request(width, height)
+        self.resize(width, height)
+
+    def get_layout_size(self):
+        return self._layout_size
 
     @classmethod
     def _install_css(cls):
@@ -418,6 +487,7 @@ class NotificationBanner(Gtk.Window):
 
     def _update_size_for_content(self):
         # Ask GTK for the natural height at our fixed width.
+        self.set_size_request(self.WIDTH, self.MIN_HEIGHT)
         self.queue_resize()
 
         try:
@@ -427,6 +497,7 @@ class NotificationBanner(Gtk.Window):
             minimum, natural = self.get_preferred_height()
             target_height = max(self.MIN_HEIGHT, natural, minimum)
 
+        self._layout_size = (self.WIDTH, target_height)
         self.resize(self.WIDTH, target_height)
 
     def _on_button_press(self, _widget, event):
@@ -462,26 +533,40 @@ class NotificationCenter:
         self.on_notification_closed = None
         self.on_action_invoked = None
 
-        self.screen_geometry = self._get_workarea()
+        (
+            self.monitor,
+            self.monitor_geometry,
+            self.screen_geometry,
+        ) = self._get_monitor_areas()
 
         self._sound_player = None
         if GST_AVAILABLE:
             self._sound_player = Gst.ElementFactory.make("playbin", "pixelnotify-sound")
 
     @staticmethod
-    def _get_workarea():
+    def _get_monitor_areas():
         screen = Gdk.Screen.get_default()
         if screen is None:
-            return Gdk.Rectangle(x=0, y=0, width=1920, height=1080)
+            geometry = Gdk.Rectangle(x=0, y=0, width=1920, height=1080)
+            return None, geometry, geometry
 
-        monitor = screen.get_primary_monitor()
-        if monitor < 0:
-            monitor = 0
+        monitor_index = screen.get_primary_monitor()
+        if monitor_index < 0:
+            monitor_index = 0
+
+        monitor = None
+        display = screen.get_display()
+        if display is not None and hasattr(display, "get_monitor"):
+            monitor = display.get_monitor(monitor_index)
+
+        geometry = screen.get_monitor_geometry(monitor_index)
 
         try:
-            return screen.get_monitor_workarea(monitor)
+            workarea = screen.get_monitor_workarea(monitor_index)
         except Exception:
-            return screen.get_monitor_geometry(monitor)
+            workarea = geometry
+
+        return monitor, geometry, workarea
 
     def _target_x(self):
         return (
@@ -491,11 +576,20 @@ class NotificationCenter:
             - self.MARGIN
         )
 
-    def _target_y(self, index):
-        y = self.screen_geometry.y + self.MARGIN
+    def _target_y(self, index, height=None):
+        if height is None:
+            if index < len(self.active_notifications):
+                height = self.active_notifications[index]["height"]
+            else:
+                height = NotificationBanner.MIN_HEIGHT
+
+        y = self.screen_geometry.y + self.screen_geometry.height - self.MARGIN
         for item in self.active_notifications[:index]:
-            y += item["height"] + self.SPACING
-        return y
+            y -= item["height"] + self.SPACING
+        return y - height
+
+    def _place_banner(self, banner, x, y, width, height):
+        banner.place(x, y, width, height, self.monitor_geometry)
 
     def _resolve_timeout_ms(self, n: Notification):
         if n.resident or n.timeout == 0:
@@ -560,82 +654,21 @@ class NotificationCenter:
         self._sound_player.set_property("uri", uri)
         self._sound_player.set_state(Gst.State.PLAYING)
 
-    @staticmethod
-    def _ease_out_cubic(t):
-        return 1.0 - pow(1.0 - t, 3)
-
-    @staticmethod
-    def _ease_in_cubic(t):
-        return t * t * t
-
-    def _animate(
-        self,
-        item,
-        end_x,
-        end_y,
-        end_w,
-        end_h,
-        duration_ms,
-        easing,
-        finished=None,
-    ):
-        self._cancel_source(item.get("anim_source"))
-        item["anim_source"] = None
-
-        banner = item["banner"]
-        try:
-            start_x, start_y = banner.get_position()
-        except Exception:
-            start_x, start_y = end_x, end_y
-
-        start_w, start_h = banner.get_size()
-        start_us = GLib.get_monotonic_time()
-        duration_us = max(1, int(duration_ms)) * 1000
-
-        def tick():
-            elapsed = GLib.get_monotonic_time() - start_us
-            raw_t = min(1.0, elapsed / duration_us)
-            t = easing(raw_t)
-
-            x = round(start_x + (end_x - start_x) * t)
-            y = round(start_y + (end_y - start_y) * t)
-            w = round(start_w + (end_w - start_w) * t)
-            h = round(start_h + (end_h - start_h) * t)
-
-            banner.move(x, y)
-            if w != start_w or h != start_h:
-                banner.resize(max(1, w), max(1, h))
-
-            if raw_t >= 1.0:
-                item["anim_source"] = None
-                if callable(finished):
-                    finished()
-                return GLib.SOURCE_REMOVE
-
-            return GLib.SOURCE_CONTINUE
-
-        item["anim_source"] = GLib.timeout_add(16, tick)
-
     def show_notification(self, notification_id, n: Notification):
         existing = self.notifications_by_id.get(notification_id)
 
         if existing is not None:
-            existing["closing"] = False
-            self._cancel_source(existing.get("anim_source"))
-            existing["anim_source"] = None
-
             current_index = self.active_notifications.index(existing)
             existing["banner"].set_notification(n)
             existing["height"] = max(
                 NotificationBanner.MIN_HEIGHT,
-                existing["banner"].get_size()[1],
+                existing["banner"].get_layout_size()[1],
             )
 
-            existing["banner"].move(
+            self._place_banner(
+                existing["banner"],
                 self._target_x(),
-                self._target_y(current_index),
-            )
-            existing["banner"].resize(
+                self._target_y(current_index, existing["height"]),
                 NotificationBanner.WIDTH,
                 existing["height"],
             )
@@ -646,7 +679,7 @@ class NotificationCenter:
             self._reflow_notifications()
             return
 
-        banner = NotificationBanner()
+        banner = NotificationBanner(self.monitor)
         banner.set_handlers(
             on_invoke=lambda nid=notification_id: self.invoke_action(nid, "default"),
             on_action=lambda action_key, nid=notification_id: self.invoke_action(
@@ -662,40 +695,34 @@ class NotificationCenter:
 
         banner_height = max(
             NotificationBanner.MIN_HEIGHT,
-            banner.get_size()[1],
+            banner.get_layout_size()[1],
         )
 
-        end_x = self._target_x()
-        end_y = self._target_y(len(self.active_notifications))
-        start_x = self.screen_geometry.x + self.screen_geometry.width + self.MARGIN
-
-        banner.move(start_x, end_y)
-        banner.resize(NotificationBanner.WIDTH, banner_height)
-        banner.show()
+        self._place_banner(
+            banner,
+            self._target_x(),
+            self._target_y(len(self.active_notifications), banner_height),
+            NotificationBanner.WIDTH,
+            banner_height,
+        )
 
         notification_item = {
             "id": notification_id,
             "banner": banner,
             "height": banner_height,
             "timer_source": None,
-            "anim_source": None,
-            "closing": False,
             "close_reason": self.REASON_CLOSED,
-            "close_generation": 0,
             "activation_token": n.activation_token,
         }
 
         self.active_notifications.append(notification_item)
         self.notifications_by_id[notification_id] = notification_item
+        banner.show()
 
-        self._animate(
-            notification_item,
-            end_x,
-            end_y,
-            NotificationBanner.WIDTH,
-            banner_height,
-            200,
-            self._ease_out_cubic,
+        LOGGER.info(
+            "showing notification %d from %s",
+            notification_id,
+            n.app_name or "Unknown App",
         )
 
         self._apply_timer(notification_item, n)
@@ -703,36 +730,11 @@ class NotificationCenter:
 
     def hide_notification(self, notification_id, reason=REASON_CLOSED):
         item = self.notifications_by_id.get(notification_id)
-        if item is None or item["closing"]:
+        if item is None:
             return False
 
-        item["closing"] = True
         item["close_reason"] = int(reason)
-        item["close_generation"] = item.get("close_generation", 0) + 1
-        generation = item["close_generation"]
-
-        self._cancel_source(item.get("timer_source"))
-        item["timer_source"] = None
-
-        banner = item["banner"]
-        x, y = banner.get_position()
-        width, height = banner.get_size()
-
-        end_x = self.screen_geometry.x + self.screen_geometry.width + self.MARGIN
-
-        self._animate(
-            item,
-            end_x,
-            y,
-            width,
-            height,
-            150,
-            self._ease_in_cubic,
-            finished=lambda nid=notification_id, gen=generation: self._after_hide(
-                nid,
-                gen,
-            ),
-        )
+        self._remove_notification(notification_id)
 
         return True
 
@@ -747,7 +749,7 @@ class NotificationCenter:
 
     def invoke_action(self, notification_id, action_key):
         item = self.notifications_by_id.get(notification_id)
-        if item is None or item["closing"]:
+        if item is None:
             return False
 
         if callable(self.on_action_invoked):
@@ -761,17 +763,7 @@ class NotificationCenter:
         self.hide_notification(notification_id, self.REASON_DISMISSED)
         return True
 
-    def _after_hide(self, notification_id, generation):
-        item = self.notifications_by_id.get(notification_id)
-        if item is None:
-            return
-
-        if (
-            item.get("close_generation", 0) != generation
-            or not item.get("closing", False)
-        ):
-            return
-
+    def _remove_notification(self, notification_id):
         item = self.notifications_by_id.pop(notification_id, None)
         if item is None:
             return
@@ -780,7 +772,6 @@ class NotificationCenter:
             self.active_notifications.remove(item)
 
         self._cancel_source(item.get("timer_source"))
-        self._cancel_source(item.get("anim_source"))
 
         item["banner"].hide()
         item["banner"].destroy()
@@ -795,28 +786,16 @@ class NotificationCenter:
 
     def _reflow_notifications(self):
         for index, item in enumerate(self.active_notifications):
-            if item.get("closing"):
-                continue
-
             banner = item["banner"]
-            width, height = banner.get_size()
+            width, height = banner.get_layout_size()
             item["height"] = max(NotificationBanner.MIN_HEIGHT, height)
 
-            target_x = self._target_x()
-            target_y = self._target_y(index)
-
-            current_x, current_y = banner.get_position()
-            if current_x == target_x and current_y == target_y:
-                continue
-
-            self._animate(
-                item,
-                target_x,
-                target_y,
+            self._place_banner(
+                banner,
+                self._target_x(),
+                self._target_y(index, item["height"]),
                 NotificationBanner.WIDTH,
                 item["height"],
-                150,
-                self._ease_out_cubic,
             )
 
 
@@ -999,7 +978,16 @@ class NotificationService(dbus.service.Object):
             resident=bool(plain_hints.get("resident", False)),
             use_action_icons=bool(plain_hints.get("action-icons", False)),
         )
-        self.center.show_notification(notification_id, notif)
+        LOGGER.info(
+            "received notification %d: %s",
+            notification_id,
+            notif.summary or "(no summary)",
+        )
+        try:
+            self.center.show_notification(notification_id, notif)
+        except Exception:
+            LOGGER.exception("failed to show notification %d", notification_id)
+            raise
         return dbus.UInt32(notification_id)
 
     @dbus.service.method(
@@ -1030,20 +1018,44 @@ class NotificationService(dbus.service.Object):
 # Main Entrypoint
 # -----------------------------
 def main():
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(levelname)s pixelnotify: %(message)s",
+    )
+
     # dbus-python and GTK now share the same GLib main loop directly.
     dbus.mainloop.glib.DBusGMainLoop(set_as_default=True)
     session_bus = dbus.SessionBus()
 
-    _bus_name = dbus.service.BusName(
-        "org.freedesktop.Notifications",
-        session_bus,
-    )
+    try:
+        _bus_name = dbus.service.BusName(
+            "org.freedesktop.Notifications",
+            session_bus,
+            allow_replacement=True,
+            replace_existing=True,
+            do_not_queue=True,
+        )
+    except dbus.DBusException:
+        LOGGER.exception(
+            "could not own org.freedesktop.Notifications; "
+            "another notification daemon may be refusing replacement"
+        )
+        return 1
 
     center = NotificationCenter()
     _service = NotificationService(session_bus, center)
 
+    LOGGER.info(
+        "ready (layer shell: %s, work area: %dx%d%+d%+d)",
+        "enabled" if GTK_LAYER_SHELL_AVAILABLE else "unavailable",
+        center.screen_geometry.width,
+        center.screen_geometry.height,
+        center.screen_geometry.x,
+        center.screen_geometry.y,
+    )
     Gtk.main()
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())
