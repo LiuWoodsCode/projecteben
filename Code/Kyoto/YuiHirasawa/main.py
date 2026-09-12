@@ -1247,7 +1247,7 @@ class Taskbar(Gtk.Window):
         status_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=1)
         self._tray = SystemTray()
         status_box.pack_start(self._tray, False, False, 0)
-        placeholder_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        placeholder_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
         for icon_type, tooltip, icon_path in self.STATUS_PLACEHOLDERS:
             placeholder_box.pack_start(
                 self._status_placeholder_button(icon_type, tooltip, icon_path),
