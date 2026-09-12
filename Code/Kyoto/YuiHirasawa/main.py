@@ -3,6 +3,7 @@ import getpass
 import os
 import re
 import select
+import subprocess
 import sys
 import tempfile
 import textwrap
@@ -1325,12 +1326,41 @@ class Taskbar(Gtk.Window):
 
     def _show_status_placeholder(
             self, _button: Gtk.Button, icon_type: str) -> None:
+        if icon_type == "audio":
+            try:
+                subprocess.Popen(
+                    ["pavucontrol"],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    start_new_session=True,
+                )
+            except OSError as exc:
+                dialog = Gtk.MessageDialog(
+                    transient_for=self,
+                    modal=True,
+                    message_type=Gtk.MessageType.ERROR,
+                    buttons=Gtk.ButtonsType.CLOSE,
+                    text="Could not open pavucontrol.",
+                )
+                dialog.format_secondary_text(str(exc))
+                dialog.run()
+                dialog.destroy()
+            return
+        if icon_type == "network":
+            text = f"{icon_type} is not currently implemented, for now use either the Ranboo API's ironmouse endpoints or nmcli."
+        if icon_type == "bt":
+            text = f"{icon_type} is not currently implemented, for now use bluetoothctl"
+        if icon_type == "audio":
+            text = f"{icon_type} is not currently implemented, wait how did we get here???"
+        if icon_type == "pwr":
+            text = f"{icon_type} is not currently implemented, the ranboo battery sharing APIs currently aren't implemented and because of the way that eben is designed, upower is not too helpful (except for peripherals and iDevices)"
+
         dialog = Gtk.MessageDialog(
             transient_for=self,
             modal=True,
             message_type=Gtk.MessageType.INFO,
             buttons=Gtk.ButtonsType.OK,
-            text=f"{icon_type} is not currently implemented.",
+            text=text,
         )
         dialog.run()
         dialog.destroy()
