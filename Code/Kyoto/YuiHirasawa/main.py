@@ -1320,7 +1320,7 @@ class Taskbar(Gtk.Window):
         button.system-status-button { background: transparent; border: 0; border-radius: 0;
             min-width: 24px; min-height: 32px; padding: 0; }
         button.system-status-button:hover { background: #404040; }
-        .clock { color: white; min-width: 48px; padding: 0 6px 0 1px; }
+        .clock { color: white; min-width: 48px; padding: 0 6px 0 1px; font-size: 16px; }
         button.launch-button { background: #3a3a3a; border: 1px solid #606060; border-radius: 0;
             color: white; min-height: 28px; padding: 1px 16px; font-weight: bold; }
         button.launch-button:hover { background: #4a4a4a; }
