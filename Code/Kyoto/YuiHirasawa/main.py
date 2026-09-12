@@ -433,7 +433,7 @@ class ApplicationLauncher(Gtk.Window):
 
 
 class Taskbar(Gtk.Window):
-    HEIGHT = 48
+    HEIGHT = 36
     ICON_SIZE = 32
 
     def __init__(self):
