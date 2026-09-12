@@ -274,6 +274,9 @@ class WaylandWindowCollector:
                 print(f"taskbar: {action} failed: {exc}", file=sys.stderr)
 
 
+TRAY_ICON_SIZE = 32
+
+
 @dataclass(frozen=True)
 class TrayItem:
     key: str
@@ -289,6 +292,7 @@ class TrayItem:
     icon_width: int = 0
     icon_height: int = 0
     icon_rgba: bytes = b""
+    menu_path: str = ""
 
 
 class StatusNotifierHost:
@@ -303,6 +307,7 @@ class StatusNotifierHost:
         "org.freedesktop.StatusNotifierItem",
     )
     PROPERTIES = "org.freedesktop.DBus.Properties"
+    DBUSMENU = "com.canonical.dbusmenu"
 
     def __init__(self, changed_callback):
         self._changed_callback = changed_callback
@@ -326,7 +331,7 @@ class StatusNotifierHost:
             print(f"taskbar: system tray unavailable: {exc}", file=sys.stderr)
 
     async def _async_main(self) -> None:
-        from dbus_next import BusType, Message, MessageType
+        from dbus_next import BusType, Message, MessageType, Variant
         from dbus_next.constants import PropertyAccess, RequestNameReply
         from dbus_next.service import ServiceInterface, dbus_property, method, signal
         from dbus_next.aio import MessageBus
@@ -378,6 +383,7 @@ class StatusNotifierHost:
 
         self._Message = Message
         self._MessageType = MessageType
+        self._Variant = Variant
         self._loop = asyncio.get_running_loop()
         self._bus = await MessageBus(bus_type=BusType.SESSION).connect()
         self._bus.add_message_handler(self._message_handler)
@@ -394,6 +400,7 @@ class StatusNotifierHost:
 
         rules = ["type='signal',interface='org.freedesktop.DBus',member='NameOwnerChanged'"]
         rules.append(f"type='signal',interface='{self.PROPERTIES}',member='PropertiesChanged'")
+        rules.append(f"type='signal',interface='{self.DBUSMENU}'")
         rules.extend(f"type='signal',interface='{name}'" for name in (*self.ITEMS, *self.WATCHERS))
         for rule in rules:
             await self._bus.call(Message(
@@ -528,7 +535,7 @@ class StatusNotifierHost:
             property_names = (
                 "Id", "Title", "Status", "ItemIsMenu", "IconName",
                 "IconThemePath", "IconPixmap", "AttentionIconName",
-                "AttentionIconPixmap", "ToolTip",
+                "AttentionIconPixmap", "ToolTip", "Menu",
             )
             for candidate in self.ITEMS:
                 item_id = await self._get_property(service, path, candidate, "Id")
@@ -557,16 +564,32 @@ class StatusNotifierHost:
         width, height, rgba = self._best_pixmap(pixmaps)
         tooltip = self._tooltip(values.get("ToolTip"))
         title = str(values.get("Title") or values.get("Id") or service)
+        menu_path = str(values.get("Menu") or "")
+        if not menu_path.startswith("/"):
+            menu_path = ""
+        item_is_menu = bool(values.get("ItemIsMenu", bool(menu_path)))
         first_load = key not in self._items
         self._items[key] = TrayItem(
-            key, service, path, interface, title, tooltip or title, status,
-            bool(values.get("ItemIsMenu", False)), icon_name, icon_theme_path, width, height, rgba,
+            key=key,
+            service=service,
+            path=path,
+            interface=interface,
+            title=title,
+            tooltip=tooltip or title,
+            status=status,
+            item_is_menu=item_is_menu,
+            icon_name=icon_name,
+            icon_theme_path=icon_theme_path,
+            icon_width=width,
+            icon_height=height,
+            icon_rgba=rgba,
+            menu_path=menu_path,
         )
         if first_load:
             icon_source = icon_name or (f"{width}x{height} pixmap" if rgba else "no icon")
             print(
                 f"taskbar: tray item loaded: {key} "
-                f"(status={status}, icon={icon_source})",
+                f"(status={status}, icon={icon_source}, menu={menu_path or 'none'})",
                 file=sys.stderr,
             )
         self._notify_changed()
@@ -643,7 +666,9 @@ class StatusNotifierHost:
             try:
                 width, height, argb = int(pixmap[0]), int(pixmap[1]), bytes(pixmap[2])
                 if width > 0 and height > 0 and len(argb) == width * height * 4:
-                    candidates.append((abs(max(width, height) - 22), width, height, argb))
+                    candidates.append(
+                        (abs(max(width, height) - TRAY_ICON_SIZE), width, height, argb)
+                    )
             except Exception:
                 pass
         if not candidates:
@@ -675,6 +700,89 @@ class StatusNotifierHost:
             lambda: asyncio.create_task(self._scroll(key, delta, orientation))
         )
 
+    def request_menu(self, key: str, callback) -> None:
+        if self._loop is None:
+            return
+        self._loop.call_soon_threadsafe(
+            lambda: asyncio.create_task(self._request_menu(key, callback))
+        )
+
+    def menu_event(self, key: str, item_id: int, timestamp: int) -> None:
+        if self._loop is None:
+            return
+        self._loop.call_soon_threadsafe(
+            lambda: asyncio.create_task(
+                self._menu_event(key, item_id, timestamp)
+            )
+        )
+
+    async def _request_menu(self, key: str, callback) -> None:
+        item = self._items.get(key)
+        if item is None or not item.menu_path:
+            return
+        reply = await self._bus.call(self._Message(
+            destination=item.service,
+            path=item.menu_path,
+            interface=self.DBUSMENU,
+            member="AboutToShow",
+            signature="i",
+            body=[0],
+        ))
+        reply = await self._bus.call(self._Message(
+            destination=item.service,
+            path=item.menu_path,
+            interface=self.DBUSMENU,
+            member="GetLayout",
+            signature="iias",
+            body=[0, -1, []],
+        ))
+        if reply.message_type == self._MessageType.ERROR or len(reply.body) < 2:
+            print(
+                f"taskbar: could not read tray menu for {key}: "
+                f"{getattr(reply, 'error_name', 'D-Bus error')}",
+                file=sys.stderr,
+            )
+            return
+        layout = self._menu_layout(self._unwrap(reply.body[1]))
+        GLib.idle_add(callback, key, layout)
+
+    async def _menu_event(self, key: str, item_id: int, timestamp: int) -> None:
+        item = self._items.get(key)
+        if item is None or not item.menu_path:
+            return
+        await self._bus.call(self._Message(
+            destination=item.service,
+            path=item.menu_path,
+            interface=self.DBUSMENU,
+            member="Event",
+            signature="isvu",
+            body=[
+                int(item_id), "clicked", self._Variant("s", ""),
+                int(timestamp) & 0xffffffff,
+            ],
+        ))
+        if reply.message_type == self._MessageType.ERROR:
+            print(
+                f"taskbar: tray menu event failed for {key}: "
+                f"{getattr(reply, 'error_name', 'D-Bus error')}",
+                file=sys.stderr,
+            )
+
+    @classmethod
+    def _menu_layout(cls, value):
+        try:
+            item_id, properties, children = value
+        except (TypeError, ValueError):
+            return None
+        return {
+            "id": int(item_id),
+            "properties": cls._unwrap(properties),
+            "children": [
+                child for child in (cls._menu_layout(cls._unwrap(raw)) for raw in children)
+                if child is not None
+            ],
+        }
+
     async def _invoke(self, key: str, member: str, x: int, y: int) -> None:
         endpoint = self._endpoints.get(key)
         if endpoint is None:
@@ -683,7 +791,7 @@ class StatusNotifierHost:
         item = self._items.get(key)
         if item is None:
             return
-        await self._bus.call(self._Message(
+        reply = await self._bus.call(self._Message(
             destination=service,
             path=path,
             interface=item.interface,
@@ -691,6 +799,12 @@ class StatusNotifierHost:
             signature="ii",
             body=[int(x), int(y)],
         ))
+        if reply.message_type == self._MessageType.ERROR:
+            print(
+                f"taskbar: tray {member} failed for {key}: "
+                f"{getattr(reply, 'error_name', 'D-Bus error')}",
+                file=sys.stderr,
+            )
 
     async def _scroll(self, key: str, delta: int, orientation: str) -> None:
         endpoint = self._endpoints.get(key)
@@ -709,12 +823,13 @@ class StatusNotifierHost:
 
 
 class SystemTray(Gtk.Box):
-    ICON_SIZE = 22
+    ICON_SIZE = TRAY_ICON_SIZE
 
     def __init__(self):
         super().__init__(orientation=Gtk.Orientation.HORIZONTAL, spacing=1)
         self._buttons: dict[str, Gtk.Button] = {}
         self._items: dict[str, TrayItem] = {}
+        self._active_menu = None
         self._host = StatusNotifierHost(self._set_items)
 
     def _set_items(self, items: tuple[TrayItem, ...]) -> bool:
@@ -764,7 +879,15 @@ class SystemTray(Gtk.Box):
                 except GLib.Error:
                     pass
         if item.icon_name and theme.has_icon(item.icon_name):
-            return Gtk.Image.new_from_icon_name(item.icon_name, Gtk.IconSize.MENU)
+            try:
+                pixbuf = theme.load_icon(
+                    item.icon_name,
+                    self.ICON_SIZE,
+                    Gtk.IconLookupFlags.FORCE_SIZE,
+                )
+                return Gtk.Image.new_from_pixbuf(pixbuf)
+            except GLib.Error:
+                pass
         if item.icon_name and os.path.isfile(item.icon_name):
             try:
                 pixbuf = GdkPixbuf.Pixbuf.new_from_file_at_scale(
@@ -780,15 +903,30 @@ class SystemTray(Gtk.Box):
             )
             scaled = pixbuf.scale_simple(self.ICON_SIZE, self.ICON_SIZE, GdkPixbuf.InterpType.BILINEAR)
             return Gtk.Image.new_from_pixbuf(scaled)
-        return Gtk.Image.new_from_icon_name("image-missing", Gtk.IconSize.MENU)
+        try:
+            pixbuf = theme.load_icon(
+                "image-missing",
+                self.ICON_SIZE,
+                Gtk.IconLookupFlags.FORCE_SIZE,
+            )
+            return Gtk.Image.new_from_pixbuf(pixbuf)
+        except GLib.Error:
+            return Gtk.Image.new_from_icon_name("image-missing", Gtk.IconSize.DIALOG)
 
     def _activate(self, _button: Gtk.Button, key: str) -> None:
         item = self._items.get(key)
-        self._host.invoke(key, "ContextMenu" if item and item.item_is_menu else "Activate")
+        if item and item.menu_path and item.item_is_menu:
+            self._open_menu(_button, key)
+        else:
+            self._host.invoke(key, "Activate")
 
     def _button_press(self, _button: Gtk.Button, event, key: str) -> bool:
         if event.button == Gdk.BUTTON_SECONDARY:
-            self._host.invoke(key, "ContextMenu", int(event.x_root), int(event.y_root))
+            item = self._items.get(key)
+            if item and item.menu_path:
+                self._open_menu(_button, key)
+            else:
+                self._host.invoke(key, "ContextMenu", int(event.x_root), int(event.y_root))
             return True
         if event.button == Gdk.BUTTON_MIDDLE:
             self._host.invoke(key, "SecondaryActivate", int(event.x_root), int(event.y_root))
@@ -808,6 +946,105 @@ class SystemTray(Gtk.Box):
             return False
         self._host.scroll(key, delta, orientation)
         return True
+
+    def _open_menu(self, _button: Gtk.Button, key: str) -> None:
+        self._host.request_menu(key, self._show_menu)
+
+    def _show_menu(self, key: str, layout) -> bool:
+        button = self._buttons.get(key)
+        if button is None or not layout:
+            return GLib.SOURCE_REMOVE
+        menu = Gtk.Menu()
+        self._append_menu_items(menu, layout.get("children", ()), key)
+        if not menu.get_children():
+            empty = Gtk.MenuItem.new_with_label("No actions")
+            empty.set_sensitive(False)
+            menu.append(empty)
+        menu.show_all()
+        self._active_menu = menu
+        menu.connect("deactivate", self._menu_closed)
+        event = Gtk.get_current_event()
+        try:
+            menu.popup_at_widget(
+                button,
+                Gdk.Gravity.NORTH_WEST,
+                Gdk.Gravity.SOUTH_WEST,
+                event,
+            )
+        except AttributeError:
+            menu.popup(None, None, None, None, 0, Gtk.get_current_event_time())
+        return GLib.SOURCE_REMOVE
+
+    def _append_menu_items(self, menu: Gtk.Menu, nodes, key: str) -> None:
+        for node in nodes:
+            properties = node.get("properties", {})
+            if properties.get("type") == "separator":
+                widget = Gtk.SeparatorMenuItem()
+            else:
+                label = str(properties.get("label") or "")
+                toggle_type = str(properties.get("toggle-type") or "")
+                if toggle_type in ("checkmark", "radio"):
+                    widget = Gtk.CheckMenuItem.new_with_mnemonic(label)
+                    widget.set_active(int(properties.get("toggle-state", 0)) == 1)
+                    widget.set_draw_as_radio(toggle_type == "radio")
+                elif properties.get("icon-name") or properties.get("icon-data"):
+                    widget = Gtk.ImageMenuItem.new_with_mnemonic(label)
+                    image = self._menu_image(properties)
+                    if image is not None:
+                        widget.set_image(image)
+                        widget.set_always_show_image(True)
+                else:
+                    widget = Gtk.MenuItem.new_with_mnemonic(label)
+
+                children = node.get("children", ())
+                if children:
+                    submenu = Gtk.Menu()
+                    self._append_menu_items(submenu, children, key)
+                    widget.set_submenu(submenu)
+                else:
+                    widget.connect(
+                        "activate", self._menu_item_activated, key, int(node["id"])
+                    )
+                widget.set_sensitive(bool(properties.get("enabled", True)))
+
+            if not bool(properties.get("visible", True)):
+                widget.set_no_show_all(True)
+                widget.hide()
+            menu.append(widget)
+
+    def _menu_image(self, properties):
+        icon_name = str(properties.get("icon-name") or "")
+        if icon_name:
+            if os.path.isfile(icon_name):
+                try:
+                    pixbuf = GdkPixbuf.Pixbuf.new_from_file_at_scale(
+                        icon_name, 16, 16, True
+                    )
+                    return Gtk.Image.new_from_pixbuf(pixbuf)
+                except GLib.Error:
+                    pass
+            if Gtk.IconTheme.get_default().has_icon(icon_name):
+                return Gtk.Image.new_from_icon_name(icon_name, Gtk.IconSize.MENU)
+        icon_data = properties.get("icon-data")
+        if icon_data:
+            try:
+                loader = GdkPixbuf.PixbufLoader.new()
+                loader.write(bytes(icon_data))
+                loader.close()
+                pixbuf = loader.get_pixbuf()
+                if pixbuf is not None:
+                    pixbuf = pixbuf.scale_simple(16, 16, GdkPixbuf.InterpType.BILINEAR)
+                    return Gtk.Image.new_from_pixbuf(pixbuf)
+            except (GLib.Error, TypeError, ValueError):
+                pass
+        return None
+
+    def _menu_item_activated(
+            self, _menu_item: Gtk.MenuItem, key: str, item_id: int) -> None:
+        self._host.menu_event(key, item_id, Gtk.get_current_event_time())
+
+    def _menu_closed(self, _menu: Gtk.Menu) -> None:
+        self._active_menu = None
 
 
 class ApplicationLauncher(Gtk.Window):
@@ -1000,11 +1237,13 @@ class Taskbar(Gtk.Window):
         self._task_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
         self._task_box.set_hexpand(True)
         bar.pack_start(self._task_box, True, True, 0)
+        status_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=1)
+        self._tray = SystemTray()
+        status_box.pack_start(self._tray, False, False, 0)
         self._clock = Gtk.Label()
         self._clock.get_style_context().add_class("clock")
-        bar.pack_end(self._clock, False, False, 0)
-        self._tray = SystemTray()
-        bar.pack_end(self._tray, False, False, 0)
+        status_box.pack_start(self._clock, False, False, 0)
+        bar.pack_end(status_box, False, False, 0)
         self.add(bar)
 
         # gtk-layer-shell's GTK 3 API sizes the surface from the widget's size
@@ -1031,9 +1270,9 @@ class Taskbar(Gtk.Window):
         button.taskbar-button:hover { background: #404040; }
         button.taskbar-button.active { background: #34445a; border-color: #7fb5ff; }
         button.tray-button { background: transparent; border: 0; border-radius: 0;
-            min-width: 24px; min-height: 24px; padding: 1px; }
+            min-width: 32px; min-height: 32px; padding: 0; }
         button.tray-button:hover { background: #404040; }
-        .clock { color: white; min-width: 56px; padding: 0 8px 0 6px; }
+        .clock { color: white; min-width: 48px; padding: 0 6px 0 1px; }
         button.launch-button { background: #3a3a3a; border: 1px solid #606060; border-radius: 0;
             color: white; min-height: 28px; padding: 1px 16px; font-weight: bold; }
         button.launch-button:hover { background: #4a4a4a; }
