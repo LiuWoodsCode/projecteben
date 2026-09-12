@@ -783,7 +783,7 @@ class StatusNotifierHost:
         item = self._items.get(key)
         if item is None or not item.menu_path:
             return
-        await self._bus.call(self._Message(
+        reply = await self._bus.call(self._Message(
             destination=item.service,
             path=item.menu_path,
             interface=self.DBUSMENU,
