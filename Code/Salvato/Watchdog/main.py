@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import ctypes
 import errno
+import fcntl
 import glob
 import os
 import select
@@ -12,6 +13,7 @@ import stat
 import sys
 import time
 
+from array import array
 from dataclasses import dataclass, field
 from typing import Optional
 
@@ -32,6 +34,11 @@ DRM_MODE_OBJECT_CRTC = 0xCCCCCCCC
 DRM_MODE_OBJECT_PLANE = 0xEEEEEEEE
 
 DRM_MODE_ATOMIC_TEST_ONLY = 0x0100
+
+VT_OPENQRY = 0x5600
+VT_ACTIVATE = 0x5606
+VT_WAITACTIVE = 0x5607
+VT_REFRESH_DELAY = 0.1
 
 
 # ---------------------------------------------------------------------------
@@ -447,6 +454,116 @@ PINK = rgb_to_background(
     GREEN,
     BLUE,
 )
+
+
+def active_vt_number() -> int:
+    with open(
+        "/sys/class/tty/tty0/active",
+        "r",
+        encoding="ascii",
+    ) as active_file:
+        active_name = active_file.read().strip()
+
+    if not active_name.startswith("tty"):
+        raise RuntimeError(
+            f"unexpected active VT name: {active_name!r}"
+        )
+
+    number = active_name[3:]
+
+    if not number.isdigit() or int(number) <= 0:
+        raise RuntimeError(
+            f"unexpected active VT name: {active_name!r}"
+        )
+
+    return int(number)
+
+
+def refresh_vt_session() -> None:
+    """Recreate a VT leave/return after restoring the desktop.
+
+    This deliberately operates on the kernel VT subsystem rather than on a
+    particular compositor. The deactivate/reactivate cycle makes the active
+    graphical session perform the same modeset and repaint that occurs when
+    the user fixes the display with a manual VT switch.
+    """
+
+    original_vt = active_vt_number()
+    console_fd = os.open(
+        "/dev/tty0",
+        os.O_RDWR | os.O_CLOEXEC | os.O_NOCTTY,
+    )
+    away_from_original = False
+
+    try:
+        free_vt = array("i", [0])
+        fcntl.ioctl(
+            console_fd,
+            VT_OPENQRY,
+            free_vt,
+            True,
+        )
+        refresh_vt = int(free_vt[0])
+
+        if refresh_vt <= 0:
+            raise RuntimeError(
+                "no unused virtual terminal is available"
+            )
+
+        print(
+            f"Refreshing desktop via VT {original_vt} "
+            f"-> VT {refresh_vt} -> VT {original_vt}..."
+        )
+
+        fcntl.ioctl(
+            console_fd,
+            VT_ACTIVATE,
+            refresh_vt,
+        )
+        away_from_original = True
+        fcntl.ioctl(
+            console_fd,
+            VT_WAITACTIVE,
+            refresh_vt,
+        )
+
+        # Give the graphical session time to finish its deactivate event
+        # before asking the kernel to activate it again.
+        time.sleep(VT_REFRESH_DELAY)
+
+        fcntl.ioctl(
+            console_fd,
+            VT_ACTIVATE,
+            original_vt,
+        )
+        fcntl.ioctl(
+            console_fd,
+            VT_WAITACTIVE,
+            original_vt,
+        )
+        away_from_original = False
+
+    finally:
+        if away_from_original:
+            try:
+                fcntl.ioctl(
+                    console_fd,
+                    VT_ACTIVATE,
+                    original_vt,
+                )
+                fcntl.ioctl(
+                    console_fd,
+                    VT_WAITACTIVE,
+                    original_vt,
+                )
+            except OSError as exc:
+                print(
+                    f"warning: failed to return to VT "
+                    f"{original_vt}: {exc}",
+                    file=sys.stderr,
+                )
+
+        os.close(console_fd)
 
 
 # ---------------------------------------------------------------------------
@@ -1284,6 +1401,22 @@ def main() -> int:
                     print(
                         f"warning: {card.path}: "
                         f"master return failed: {exc}",
+                        file=sys.stderr,
+                    )
+
+            # Recreate the session transition which a manual VT switch uses
+            # to make a graphical session reacquire DRM and repaint. This is
+            # intentionally compositor-agnostic and happens only after the
+            # original pixels and DRM ownership have been restored.
+            if any(
+                card.original_master is not None
+                for card in cards
+            ):
+                try:
+                    refresh_vt_session()
+                except Exception as exc:
+                    print(
+                        f"warning: VT refresh failed: {exc}",
                         file=sys.stderr,
                     )
 
