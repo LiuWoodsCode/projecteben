@@ -641,6 +641,10 @@ class ApplicationLauncher(Gtk.Window):
             item = Gtk.MenuItem(label=label)
             item.connect("activate", self._power_action, label, command, confirm)
             menu.append(item)
+        menu.append(Gtk.SeparatorMenuItem())
+        kill_shell = Gtk.MenuItem(label="Kill Shell")
+        kill_shell.connect("activate", lambda _item: Gtk.main_quit())
+        menu.append(kill_shell)
         menu.show_all()
         return menu
 
@@ -694,7 +698,7 @@ class ApplicationLauncher(Gtk.Window):
 class Taskbar(Gtk.Window):
     HEIGHT = 36
     ICON_SIZE = 32
-    STATUS_ICON_SIZE = 24
+    STATUS_ICON_SIZE = 20
     STATUS_PLACEHOLDERS = (
         ("network", "Network", "assets/icons/network/wifi/dark/4.svg"),
         ("bt", "Bluetooth", "assets/icons/settings/bluetooth.svg"),
