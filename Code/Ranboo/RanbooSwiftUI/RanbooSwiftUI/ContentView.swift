@@ -1085,8 +1085,8 @@ struct DevicePlaceholderView: View {
         ContentUnavailableView(
             "Select a Device",
             systemImage: "desktopcomputer",
-            description: Text("青葉真司をファッ")
-            // description: Text(randomDescriptionDevJokes)
+            // description: Text("青葉真司をファッ")
+            description: Text(randomDescriptionDevJokes)
         )
     }
 }
