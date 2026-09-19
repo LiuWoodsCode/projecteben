@@ -6,7 +6,7 @@ from PySide6.QtWidgets import (
     QLineEdit, QCheckBox, QFrame
 )
 from PySide6.QtGui import QPixmap, QImage
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import Qt, Signal, QTimer
 
 try:
     from PIL import Image, ImageFilter
@@ -146,6 +146,8 @@ class SetupWizard(QWidget):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Linux Setup Wizard")
+        self.setMinimumWidth(640)
+        self.setMinimumHeight(480)
         # Don't show/resize yet — wait until the widget is fully constructed
 
         # Background
@@ -507,7 +509,10 @@ if __name__ == "__main__":
     """)
 
     win = SetupWizard()
-    # Show full-screen after the widget is fully initialized so resizeEvent
-    # can safely access members like `bg`.
-    win.showFullScreen()
+    # On macOS, changing to full-screen before Cocoa has given the content view
+    # a non-zero frame produces an "invalid window content view size" warning.
+    # Showing first and deferring the state change by one event-loop turn gives
+    # the native window valid geometry while keeping the full-screen behavior.
+    win.show()
+    QTimer.singleShot(0, win.showFullScreen)
     sys.exit(app.exec())
