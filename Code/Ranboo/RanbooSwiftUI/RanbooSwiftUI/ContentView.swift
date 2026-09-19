@@ -361,6 +361,7 @@ struct EbenAPIClient {
             serial: serial,
             revision: revision,
             kernelVersion: kernelVersion,
+            cmdline: cmdline,
             uptime: uptime
         )
     }
