@@ -5,7 +5,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout, QHBoxLayout, QStackedWidget,
     QLineEdit, QCheckBox, QFrame
 )
-from PySide6.QtGui import QPixmap, QImage
+from PySide6.QtGui import QGuiApplication, QPixmap, QImage
 from PySide6.QtCore import Qt, Signal, QTimer
 
 try:
@@ -94,29 +94,6 @@ class BasePage(QWidget):
 
         self.back_btn.clicked.connect(self.back_clicked.emit)
         self.next_btn.clicked.connect(self.next_clicked.emit)
-        
-        # Apple HID style: secondary button for back
-        back_style = """
-            QPushButton {
-                padding: 10px 24px;
-                border-radius: 8px;
-                font-size: 14px;
-                font-weight: 500;
-                border: 1px solid #d5d5d7;
-                min-height: 40px;
-                min-width: 80px;
-                color: #0071e3;
-                background-color: white;
-            }
-            QPushButton:hover:!pressed {
-                background-color: #f5f5f7;
-                border: 1px solid #d5d5d7;
-            }
-            QPushButton:pressed {
-                background-color: #e8e8ed;
-            }
-        """
-        self.back_btn.setStyleSheet(back_style)
 
         nav = QHBoxLayout()
         nav.setContentsMargins(0, 20, 0, 0)
@@ -266,20 +243,6 @@ class SetupWizard(QWidget):
 
                 self.username = QLineEdit()
                 self.username.setPlaceholderText("Username")
-                self.username.setStyleSheet("""
-                    QLineEdit {
-                        padding: 12px 14px;
-                        border: 1px solid #e5e5e5;
-                        border-radius: 8px;
-                        font-size: 15px;
-                        background-color: #fafafa;
-                        selection-background-color: #0071e3;
-                    }
-                    QLineEdit:focus {
-                        border: 2px solid #0071e3;
-                        background-color: white;
-                    }
-                """)
                 self.username.setMinimumHeight(44)
                 self.username.textChanged.connect(self.on_username_changed)
 
@@ -336,17 +299,6 @@ class SetupWizard(QWidget):
                 self.drivers = QCheckBox("Install proprietary drivers")
                 
                 for checkbox in [self.updates, self.drivers]:
-                    checkbox.setStyleSheet("""
-                        QCheckBox {
-                            color: #333333;
-                            font-size: 15px;
-                            spacing: 8px;
-                        }
-                        QCheckBox::indicator {
-                            width: 18px;
-                            height: 18px;
-                        }
-                    """)
                     checkbox.setFixedHeight(44)
 
                 layout.addWidget(title)
@@ -482,30 +434,9 @@ if __name__ == "__main__":
     app = QApplication(sys.argv)
     # Force a neutral, cross-platform style so the system theme is ignored
     app.setStyle('Fusion')
-    # Apple HID-compliant stylesheet
+    QGuiApplication.styleHints().setColorScheme(Qt.ColorScheme.Light)
     app.setStyleSheet("""
     QWidget { background: transparent; }
-    QPushButton {
-        padding: 10px 24px;
-        border-radius: 8px;
-        font-size: 14px;
-        font-weight: 500;
-        border: none;
-        min-height: 40px;
-        min-width: 80px;
-        color: white;
-        background-color: #0071e3;
-    }
-    QPushButton:hover:!pressed {
-        background-color: #0066cc;
-    }
-    QPushButton:pressed {
-        background-color: #0062b1;
-    }
-    QPushButton:disabled {
-        background-color: #d5d5d7;
-        color: #ffffff;
-    }
     """)
 
     win = SetupWizard()
