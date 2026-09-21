@@ -785,7 +785,7 @@ def wait_for_wake(cooling_devices):
             device.close()
 
 
-def main(no_panic=False, lock_on_wake=False):
+def main(no_panic=False, lock_on_wake=False, err_susp=False, err_wake=False):
     LOGGER.info("Entering fake sleep (whitelist mode)")
 
     try:
@@ -805,6 +805,8 @@ def main(no_panic=False, lock_on_wake=False):
         freeze_processes(pids)
 
         minimize_power()
+        if err_susp:
+            raise Exception
         cooling_devices = load_cooling_state()
         wait_for_wake(cooling_devices)
 
@@ -829,6 +831,8 @@ def main(no_panic=False, lock_on_wake=False):
 
     try:
         restore_power()
+        if err_wake:
+            raise Exception
         restore_systemd_services(load_service_state())
         pids = load_pids()
         LOGGER.info("Resuming %d process(es)", len(pids))
@@ -849,6 +853,8 @@ def main(no_panic=False, lock_on_wake=False):
                 "The system may be unstable. It is recommended to restart the system as soon as possible to prevent potential data loss and instability."
             )
         else:
+            force_screen_on_for_error()
+            time.sleep(2)
             # define the color of the panic screen
             solid_color_display.display_color(255,0,255)
 
@@ -864,12 +870,12 @@ def main(no_panic=False, lock_on_wake=False):
                 encoding="utf-8"
             )
 
-            time.sleep(5)
+            time.sleep(30)
             try:
                 subprocess.run("sync")
             except:
                 LOGGER.info("welp, syncing failed, but there's not much we can do atp")
-            subprocess.run("reboot -f")
+            subprocess.run(["reboot", "-f"])
         return
 
     LOGGER.info("Resume complete")
@@ -887,5 +893,15 @@ if __name__ == "__main__":
         action="store_true",
         help="Lock the active session after wake before resuming suspended processes.",
     )
+    parser.add_argument(
+        "--test-suspend-error",
+        action="store_true",
+        help="Test suspend eror.",
+    )
+    parser.add_argument(
+        "--test-wake-error",
+        action="store_true",
+        help="Test wake eror.",
+    )
     args = parser.parse_args()
-    main(no_panic=args.no_panic, lock_on_wake=args.lock_on_wake)
+    main(no_panic=args.no_panic, lock_on_wake=args.lock_on_wake, err_susp=args.test_suspend_error, err_wake=args.test_wake_error)
