@@ -1,11 +1,21 @@
 2027-04-11 22:47:11
-Linux version 6.18.44 (root@f12e0639e4c4) (gcc (Ubuntu 11.4.0-1ubuntu1~22.04.3) 11.4.0, GNU ld (GNU Binutils for Ubuntu) 2.38) #1 SMP Sat Sep 12 15:35:21 UTC 2026
+Hello, I am CrashSalvato, your friendly ProjectEben crash handler
+
+******* HW INFO *******
 Model: Raspberry Pi 5 Model B Rev 1.0
 Serial: ABC123DEF456
 Revision: d01234
 
-Hello, I am CrashSalvato, your friendly ProjectEben crash handler
+******* SW INFO *******
+Kernel: Linux version 6.18.44 (root@f12e0639e4c4) (gcc (Ubuntu 11.4.0-1ubuntu1~22.04.3) 11.4.0, GNU ld (GNU Binutils for Ubuntu) 2.38) #1 SMP Sat Sep 12 15:35:21 UTC 2026
+OS-release: Debian GNU/Linux 13 (trixie)
 
+******* CALLER INFORMATION *******
+PID of calling process: 532
+Process name: python3
+Command line: /usr/bin/python3 test.py
+
+******* SYSTEM STATE *******
 System started at 2026-04-11 00:00:00 
 
 Our kernel cmdline for this session was the following:
@@ -16,4 +26,21 @@ USER               PID  %CPU %MEM      VSZ    RSS   TT  STAT STARTED      TIME C
 dapixelprowler   20398  47.6  1.5 571872304 129728   ??  R     8:27PM  97:53.65 /Applications/Dolphin.app/Contents/MacOS/Dolphin
 dapixelprowler    2349  27.7  0.2 488818560  14672   ??  Ss    6:00PM 103:24.15 /System/Library/PrivateFrameworks/StorageManagement.framework/PlugIns/ApplicationsStorageExtension.appex/Conte
 
-Unknown stockwood suspend failure, will now force reboot
+******* LOGS *******
+Dmesg last 30 lines:
+[put the last 30 lines of dmesg here]
+
+Journal last 30 lines:
+[put the last 30 lines of journal log here]
+
+******* ADDITIONAL DETAILS! *******
+These details were provided by the program and can help diagnose the issue.
+
+Traceback (most recent call last):
+  File "/home/dapixelprowler/projecteben/Code/Salvato/Misc/stockwood-suspend/main.py", line 771, in main
+    save_pids(pids)
+    ~~~~~~~~~^^^^^^
+  File "/home/dapixelprowler/projecteben/Code/Salvato/Misc/stockwood-suspend/main.py", line 453, in save_pids
+    with open(SLEEP_STATE_FILE, "w") as f:
+         ~~~~^^^^^^^^^^^^^^^^^^^^^^^
+PermissionError: [Errno 13] Permission denied: '/tmp/pi_fake_sleep_pids.txt'

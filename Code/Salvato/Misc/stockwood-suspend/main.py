@@ -17,6 +17,7 @@ from glob import glob
 from evdev import InputDevice, ecodes, list_devices
 from pathlib import Path
 from datetime import datetime
+import crashsalvato
 
 # Skip these process names when suspending regular-user processes
 BLOCKED_PROCESS_NAMES = {
@@ -789,8 +790,8 @@ def main(no_panic=False, lock_on_wake=False):
         err = traceback.format_exc()
         restore_power()
         restore_systemd_services(load_service_state())
-        show_error(f"Sleep failure:\n\n{err}")
-        panic_log = f"Hello, this is CrashSalvato\nWhile: Into Sleep\n{err}"
+        additional_details = f"Issue while entering stockwood suspend\n\nException:\n{err}"
+        panic_log = crashsalvato.generate_crash_log(additional_details=additional_details)
         crashlog_dir = Path("/etc/crashlog")
         crashlog_dir.mkdir(parents=True, exist_ok=True)
 
@@ -800,6 +801,7 @@ def main(no_panic=False, lock_on_wake=False):
             panic_log,
             encoding="utf-8"
         )
+        show_error(f"Sleep failure:\n\n{err}\nLogs were created at /etc/crashlog/{timestamp}_suspend.txt")
         return
 
     try:
@@ -825,7 +827,8 @@ def main(no_panic=False, lock_on_wake=False):
                 "The system may be unstable. It is recommended to restart the system as soon as possible to prevent potential data loss and instability."
             )
         else:
-            panic_log = f"Hello, this is CrashSalvato\nWhile: Resume\n{err}"
+            additional_details = f"Issue while resuming from stockwood suspend\n\nException:\n{err}"
+            panic_log = crashsalvato.generate_crash_log(additional_details=additional_details)
             crashlog_dir = Path("/etc/crashlog")
             crashlog_dir.mkdir(parents=True, exist_ok=True)
 
