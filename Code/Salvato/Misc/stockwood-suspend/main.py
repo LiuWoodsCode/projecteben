@@ -18,6 +18,8 @@ from evdev import InputDevice, ecodes, list_devices
 from pathlib import Path
 from datetime import datetime
 import crashsalvato
+import solid_color_display
+import io
 
 # Skip these process names when suspending regular-user processes
 BLOCKED_PROCESS_NAMES = {
@@ -80,12 +82,30 @@ ESSENTIAL_SYSTEMD_SERVICES = {
     "rpi-hotspot.service",
 }
 
-logging.basicConfig(
-    level=logging.DEBUG,
-    format="[%(levelname)s] %(message)s",
-)
-LOGGER = logging.getLogger("stockwood-suspend")
+LOG_BUFFER = io.StringIO()
 
+LOG_FORMAT = logging.Formatter(
+    "[%(levelname)s] %(message)s"
+)
+
+# Normal console logging
+console_handler = logging.StreamHandler()
+console_handler.setLevel(logging.DEBUG)
+console_handler.setFormatter(LOG_FORMAT)
+
+# In-memory logging for crash reports
+crash_buffer_handler = logging.StreamHandler(LOG_BUFFER)
+crash_buffer_handler.setLevel(logging.DEBUG)
+crash_buffer_handler.setFormatter(LOG_FORMAT)
+
+LOGGER = logging.getLogger("stockwood-suspend")
+LOGGER.setLevel(logging.DEBUG)
+LOGGER.addHandler(console_handler)
+LOGGER.addHandler(crash_buffer_handler)
+LOGGER.propagate = False
+
+def get_session_log():
+    return LOG_BUFFER.getvalue().rstrip()
 
 def run(cmd):
     LOGGER.debug("Running shell command: %s", cmd)
@@ -790,7 +810,7 @@ def main(no_panic=False, lock_on_wake=False):
         err = traceback.format_exc()
         restore_power()
         restore_systemd_services(load_service_state())
-        additional_details = f"Issue while entering stockwood suspend\n\nException:\n{err}"
+        additional_details = f"Issue while entering stockwood suspend\n\nLogs:\n{get_session_log()}\n\nException:\n{err}"
         panic_log = crashsalvato.generate_crash_log(additional_details=additional_details)
         crashlog_dir = Path("/etc/crashlog")
         crashlog_dir.mkdir(parents=True, exist_ok=True)
@@ -819,7 +839,6 @@ def main(no_panic=False, lock_on_wake=False):
         err = traceback.format_exc()
         LOGGER.critical("Resume failure:\n%s", err)
 
-        time.sleep(5)
         if no_panic:
             show_error(
                 "Wake failure:\n\n"
@@ -827,7 +846,10 @@ def main(no_panic=False, lock_on_wake=False):
                 "The system may be unstable. It is recommended to restart the system as soon as possible to prevent potential data loss and instability."
             )
         else:
-            additional_details = f"Issue while resuming from stockwood suspend\n\nException:\n{err}"
+            # define the color of the panic screen
+            solid_color_display.display_color(255,0,255)
+
+            additional_details = f"Issue while resuming from stockwood suspend\n\nLogs:\n{get_session_log()}\n\nException:\n{err}\n\nAs this is a wake error, will be panicing"
             panic_log = crashsalvato.generate_crash_log(additional_details=additional_details)
             crashlog_dir = Path("/etc/crashlog")
             crashlog_dir.mkdir(parents=True, exist_ok=True)
@@ -838,6 +860,13 @@ def main(no_panic=False, lock_on_wake=False):
                 panic_log,
                 encoding="utf-8"
             )
+
+            time.sleep(5)
+            try:
+                subprocess.run("sync")
+            except:
+                LOGGER.info("welp, syncing failed, but there's not much we can do atp")
+            subprocess.run("reboot -f")
         return
 
     LOGGER.info("Resume complete")
