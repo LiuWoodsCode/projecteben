@@ -790,6 +790,16 @@ def main(no_panic=False, lock_on_wake=False):
         restore_power()
         restore_systemd_services(load_service_state())
         show_error(f"Sleep failure:\n\n{err}")
+        panic_log = f"Hello, this is CrashSalvato\nWhile: Into Sleep\n{err}"
+        crashlog_dir = Path("/etc/crashlog")
+        crashlog_dir.mkdir(parents=True, exist_ok=True)
+
+        timestamp = datetime.now().astimezone().isoformat(timespec="seconds")
+
+        (crashlog_dir / f"{timestamp}_suspend.txt").write_text(
+            panic_log,
+            encoding="utf-8"
+        )
         return
 
     try:
@@ -815,7 +825,7 @@ def main(no_panic=False, lock_on_wake=False):
                 "The system may be unstable. It is recommended to restart the system as soon as possible to prevent potential data loss and instability."
             )
         else:
-            panic_log = f"Hello, this is CrashSalvato\n\n{err}"
+            panic_log = f"Hello, this is CrashSalvato\nWhile: Resume\n{err}"
             crashlog_dir = Path("/etc/crashlog")
             crashlog_dir.mkdir(parents=True, exist_ok=True)
 
