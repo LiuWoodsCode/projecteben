@@ -674,10 +674,11 @@ def turn_on_displays(displays):
 
 
 def restart_panel():
-    LOGGER.info("Restarting wf-panel-pi to refresh the taskbar")
-    subprocess.run(["pkill", "-9", "wf-panel-pi"], check=False)
-
-
+    # Project Kyoto implements a different panel, so this isn't needed
+    pass
+    # LOGGER.info("Restarting wf-panel-pi to refresh the taskbar")
+    # subprocess.run(["pkill", "-9", "wf-panel-pi"], check=False)
+    
 def minimize_power():
     LOGGER.info("Preparing displays and CPU for fake sleep")
     displays = get_display_state()
@@ -762,6 +763,8 @@ def wait_for_wake(cooling_devices):
                 next_cpu_refresh = now + COOLING_REFRESH_SECONDS
 
             if now >= next_process_refresh:
+                LOGGER.info("Making sure power button presses don't trigger system shutdown")
+                subprocess.run(["pkill", "-9", "pishutdown"], check=False)
                 refreshed_pids = get_target_pids()
                 LOGGER.info("Re-freezing %d process(es)", len(refreshed_pids))
                 freeze_processes(refreshed_pids)
