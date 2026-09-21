@@ -15,6 +15,8 @@ import time
 import threading
 from glob import glob
 from evdev import InputDevice, ecodes, list_devices
+from pathlib import Path
+from datetime import datetime
 
 # Skip these process names when suspending regular-user processes
 BLOCKED_PROCESS_NAMES = {
@@ -813,10 +815,15 @@ def main(no_panic=False, lock_on_wake=False):
                 "The system may be unstable. It is recommended to restart the system as soon as possible to prevent potential data loss and instability."
             )
         else:
-            show_panic_warning(
-                "Wake failure:\n\n"
-                f"{err}\n"
-                "The system will panic NOW!!",
+            panic_log = f"Hello, this is CrashSalvato\n\n{err}"
+            crashlog_dir = Path("/etc/crashlog")
+            crashlog_dir.mkdir(parents=True, exist_ok=True)
+
+            timestamp = datetime.now().astimezone().isoformat(timespec="seconds")
+
+            (crashlog_dir / f"{timestamp}_suspend.txt").write_text(
+                panic_log,
+                encoding="utf-8"
             )
         return
 
