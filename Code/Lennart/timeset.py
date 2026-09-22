@@ -17,6 +17,8 @@ GRAPHENE_URL = "https://time.grapheneos.org/generate_204"
 
 HTTPS_SITES = [
     "https://en.wikipedia.org",
+    "https://www.google.com",
+    "https://www.apple.com",
     "https://hackaday.com",
     "https://maia.crimew.gay",
     "https://www.jeffgeerling.com/",
