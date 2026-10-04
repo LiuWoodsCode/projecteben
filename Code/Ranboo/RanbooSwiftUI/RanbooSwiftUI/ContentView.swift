@@ -1343,7 +1343,10 @@ struct DeviceDetailView: View {
             vncButton("Stop noVNC", path: "/vnc/stop/novnc", role: .destructive)
             Button("Load Preview", action: loadPreview)
             Button("Launch noVNC", action: openNoVNC)
-            previewView
+            Text("To use these functions, you will need a handler that supports vnc:// and/or ssh://. macOS includes these, but you will need to get compatible apps for other platforms.")
+            Button("Launch VNC", action: openVnc) // in stock macOS this opens Screen Sharing, it's workable but not as good as the future Eben VNC app
+            Button("Launch SSH", action: openSsh)
+            previewView // in stock macOS this opens up terminal.app, this can be remapped to iterm if you need
         }
     }
     
@@ -1484,8 +1487,28 @@ struct DeviceDetailView: View {
         openURLForPort(6080, path: "/vnc.html")
     }
     
+    private func openVnc() {
+        openVncOnPort(5901)
+    }
+    
+    private func openSsh() {
+        openSshOnPort(22)
+    }
+    
     private func openURLForPort(_ port: Int, path: String) {
         let address = "http://\(model.host):\(port)\(path)"
+        guard let url = URL(string: address) else { return }
+        openURL(url)
+    }
+    
+    private func openVncOnPort(_ port: Int) {
+        let address = "vnc://\(model.host):\(port)"
+        guard let url = URL(string: address) else { return }
+        openURL(url)
+    }
+    
+    private func openSshOnPort(_ port: Int) {
+        let address = "ssh://\(model.host):\(port)"
         guard let url = URL(string: address) else { return }
         openURL(url)
     }
