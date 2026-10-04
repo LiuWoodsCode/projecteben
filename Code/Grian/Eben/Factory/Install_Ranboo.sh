@@ -37,7 +37,7 @@ Description=Ranboo server
 
 [Service]
 Type=simple
-WorkingDirectory="$server_dir"
+WorkingDirectory=$server_dir
 ExecStart="$python_bin" "$server_main"
 Restart=on-failure
 RestartSec=5
