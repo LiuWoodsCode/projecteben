@@ -10,30 +10,7 @@
 		9730CA663071DF0800D871CF /* WidgetKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 9730CA653071DF0800D871CF /* WidgetKit.framework */; };
 		9730CA683071DF0800D871CF /* SwiftUI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 9730CA673071DF0800D871CF /* SwiftUI.framework */; };
 		9730CA7B3071DF0B00D871CF /* AppIntents.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 9730CA7C3071DF0B00D871CF /* AppIntents.framework */; };
-		9730CA753071DF0A00D871CF /* RanbooWidgetsExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 9730CA633071DF0800D871CF /* RanbooWidgetsExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 /* End PBXBuildFile section */
-
-/* Begin PBXContainerItemProxy section */
-		9730CA733071DF0A00D871CF /* PBXContainerItemProxy */ = {
-			isa = PBXContainerItemProxy;
-			containerPortal = 97970B55303E207800187A49 /* Project object */;
-			proxyType = 1;
-			remoteGlobalIDString = 9730CA623071DF0800D871CF;
-			remoteInfo = RanbooWidgetsExtension;
-		};
-/* End PBXContainerItemProxy section */
-
-/* Begin PBXCopyFilesBuildPhase section */
-		9730CA763071DF0A00D871CF /* Embed Foundation Extensions */ = {
-			isa = PBXCopyFilesBuildPhase;
-			dstPath = "";
-			dstSubfolder = PlugIns;
-			files = (
-				9730CA753071DF0A00D871CF /* RanbooWidgetsExtension.appex in Embed Foundation Extensions */,
-			);
-			name = "Embed Foundation Extensions";
-		};
-/* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
 		9730CA633071DF0800D871CF /* RanbooWidgetsExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = RanbooWidgetsExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -143,12 +120,8 @@
 				97970B59303E207800187A49 /* Sources */,
 				97970B5A303E207800187A49 /* Frameworks */,
 				97970B5B303E207800187A49 /* Resources */,
-				9730CA763071DF0A00D871CF /* Embed Foundation Extensions */,
 			);
 			buildRules = (
-			);
-			dependencies = (
-				9730CA743071DF0A00D871CF /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
 				97970B5F303E207800187A49 /* RanbooSwiftUI */,
@@ -221,14 +194,6 @@
 			);
 		};
 /* End PBXSourcesBuildPhase section */
-
-/* Begin PBXTargetDependency section */
-		9730CA743071DF0A00D871CF /* PBXTargetDependency */ = {
-			isa = PBXTargetDependency;
-			target = 9730CA623071DF0800D871CF /* RanbooWidgetsExtension */;
-			targetProxy = 9730CA733071DF0A00D871CF /* PBXContainerItemProxy */;
-		};
-/* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
 		9730CA773071DF0A00D871CF /* Debug configuration for PBXNativeTarget "RanbooWidgetsExtension" */ = {
