@@ -6,11 +6,60 @@
 	objectVersion = 110;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		9730CA663071DF0800D871CF /* WidgetKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 9730CA653071DF0800D871CF /* WidgetKit.framework */; };
+		9730CA683071DF0800D871CF /* SwiftUI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 9730CA673071DF0800D871CF /* SwiftUI.framework */; };
+		9730CA753071DF0A00D871CF /* RanbooWidgetsExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 9730CA633071DF0800D871CF /* RanbooWidgetsExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		9730CA733071DF0A00D871CF /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 97970B55303E207800187A49 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 9730CA623071DF0800D871CF;
+			remoteInfo = RanbooWidgetsExtension;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		9730CA763071DF0A00D871CF /* Embed Foundation Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			dstPath = "";
+			dstSubfolder = PlugIns;
+			files = (
+				9730CA753071DF0A00D871CF /* RanbooWidgetsExtension.appex in Embed Foundation Extensions */,
+			);
+			name = "Embed Foundation Extensions";
+		};
+/* End PBXCopyFilesBuildPhase section */
+
 /* Begin PBXFileReference section */
+		9730CA633071DF0800D871CF /* RanbooWidgetsExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = RanbooWidgetsExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		9730CA653071DF0800D871CF /* WidgetKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = WidgetKit.framework; path = /System/Library/Frameworks/WidgetKit.framework; sourceTree = "<absolute>"; };
+		9730CA673071DF0800D871CF /* SwiftUI.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = SwiftUI.framework; path = /System/Library/Frameworks/SwiftUI.framework; sourceTree = "<absolute>"; };
 		97970B5D303E207800187A49 /* RanbooSwiftUI.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = RanbooSwiftUI.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		9730CA793071DF0A00D871CF /* Exceptions for "RanbooWidgets" folder in "RanbooWidgetsExtension" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = 9730CA623071DF0800D871CF /* RanbooWidgetsExtension */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
+
 /* Begin PBXFileSystemSynchronizedRootGroup section */
+		9730CA693071DF0800D871CF /* RanbooWidgets */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				9730CA793071DF0A00D871CF /* Exceptions for "RanbooWidgets" folder in "RanbooWidgetsExtension" target */,
+			);
+			path = RanbooWidgets;
+			sourceTree = "<group>";
+		};
 		97970B5F303E207800187A49 /* RanbooSwiftUI */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			path = RanbooSwiftUI;
@@ -19,6 +68,13 @@
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
+		9730CA603071DF0800D871CF /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			files = (
+				9730CA683071DF0800D871CF /* SwiftUI.framework in Frameworks */,
+				9730CA663071DF0800D871CF /* WidgetKit.framework in Frameworks */,
+			);
+		};
 		97970B5A303E207800187A49 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			files = (
@@ -27,10 +83,21 @@
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
+		9730CA643071DF0800D871CF /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+				9730CA653071DF0800D871CF /* WidgetKit.framework */,
+				9730CA673071DF0800D871CF /* SwiftUI.framework */,
+			);
+			name = Frameworks;
+			sourceTree = "<group>";
+		};
 		97970B54303E207800187A49 = {
 			isa = PBXGroup;
 			children = (
 				97970B5F303E207800187A49 /* RanbooSwiftUI */,
+				9730CA693071DF0800D871CF /* RanbooWidgets */,
+				9730CA643071DF0800D871CF /* Frameworks */,
 				97970B5E303E207800187A49 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -39,6 +106,7 @@
 			isa = PBXGroup;
 			children = (
 				97970B5D303E207800187A49 /* RanbooSwiftUI.app */,
+				9730CA633071DF0800D871CF /* RanbooWidgetsExtension.appex */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -46,6 +114,24 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
+		9730CA623071DF0800D871CF /* RanbooWidgetsExtension */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 9730CA7A3071DF0A00D871CF /* Build configuration list for PBXNativeTarget "RanbooWidgetsExtension" */;
+			buildPhases = (
+				9730CA5F3071DF0800D871CF /* Sources */,
+				9730CA603071DF0800D871CF /* Frameworks */,
+				9730CA613071DF0800D871CF /* Resources */,
+			);
+			buildRules = (
+			);
+			fileSystemSynchronizedGroups = (
+				9730CA693071DF0800D871CF /* RanbooWidgets */,
+			);
+			name = RanbooWidgetsExtension;
+			productName = RanbooWidgetsExtension;
+			productReference = 9730CA633071DF0800D871CF /* RanbooWidgetsExtension.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
 		97970B5C303E207800187A49 /* RanbooSwiftUI */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = 97970B68303E207B00187A49 /* Build configuration list for PBXNativeTarget "RanbooSwiftUI" */;
@@ -53,8 +139,12 @@
 				97970B59303E207800187A49 /* Sources */,
 				97970B5A303E207800187A49 /* Frameworks */,
 				97970B5B303E207800187A49 /* Resources */,
+				9730CA763071DF0A00D871CF /* Embed Foundation Extensions */,
 			);
 			buildRules = (
+			);
+			dependencies = (
+				9730CA743071DF0A00D871CF /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
 				97970B5F303E207800187A49 /* RanbooSwiftUI */,
@@ -71,9 +161,12 @@
 			isa = PBXProject;
 			attributes = {
 				BuildIndependentTargetsInParallel = 1;
-				LastSwiftUpdateCheck = 2700;
+				LastSwiftUpdateCheck = 2710;
 				LastUpgradeCheck = 2700;
 				TargetAttributes = {
+					9730CA623071DF0800D871CF = {
+						CreatedOnToolsVersion = 27.1;
+					};
 					97970B5C303E207800187A49 = {
 						CreatedOnToolsVersion = 27.0;
 					};
@@ -94,11 +187,17 @@
 			projectRoot = "";
 			targets = (
 				97970B5C303E207800187A49 /* RanbooSwiftUI */,
+				9730CA623071DF0800D871CF /* RanbooWidgetsExtension */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
+		9730CA613071DF0800D871CF /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			files = (
+			);
+		};
 		97970B5B303E207800187A49 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			files = (
@@ -107,6 +206,11 @@
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
+		9730CA5F3071DF0800D871CF /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			files = (
+			);
+		};
 		97970B59303E207800187A49 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			files = (
@@ -114,7 +218,101 @@
 		};
 /* End PBXSourcesBuildPhase section */
 
+/* Begin PBXTargetDependency section */
+		9730CA743071DF0A00D871CF /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 9730CA623071DF0800D871CF /* RanbooWidgetsExtension */;
+			targetProxy = 9730CA733071DF0A00D871CF /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
 /* Begin XCBuildConfiguration section */
+		9730CA773071DF0A00D871CF /* Debug configuration for PBXNativeTarget "RanbooWidgetsExtension" */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				ASSETCATALOG_COMPILER_WIDGET_BACKGROUND_COLOR_NAME = WidgetBackground;
+				CODE_SIGN_IDENTITY = "Apple Development";
+				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "-";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = "";
+				ENABLE_APP_SANDBOX = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = RanbooWidgets/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = RanbooWidgets;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				IPHONEOS_DEPLOYMENT_TARGET = 27.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				"LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]" = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@executable_path/../../../../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 27.0;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.pixelprowler.RanbooSwiftUI.RanbooWidgets;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = auto;
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx xros xrsimulator";
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2,7";
+				XROS_DEPLOYMENT_TARGET = 27.0;
+			};
+			name = Debug;
+		};
+		9730CA783071DF0A00D871CF /* Release configuration for PBXNativeTarget "RanbooWidgetsExtension" */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				ASSETCATALOG_COMPILER_WIDGET_BACKGROUND_COLOR_NAME = WidgetBackground;
+				CODE_SIGN_IDENTITY = "Apple Development";
+				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "-";
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = "";
+				ENABLE_APP_SANDBOX = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = RanbooWidgets/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = RanbooWidgets;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				IPHONEOS_DEPLOYMENT_TARGET = 27.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				"LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]" = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@executable_path/../../../../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 27.0;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.pixelprowler.RanbooSwiftUI.RanbooWidgets;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = auto;
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx xros xrsimulator";
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2,7";
+				XROS_DEPLOYMENT_TARGET = 27.0;
+			};
+			name = Release;
+		};
 		97970B66303E207B00187A49 /* Debug configuration for PBXProject "RanbooSwiftUI" */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -346,6 +544,14 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
+		9730CA7A3071DF0A00D871CF /* Build configuration list for PBXNativeTarget "RanbooWidgetsExtension" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				9730CA773071DF0A00D871CF /* Debug configuration for PBXNativeTarget "RanbooWidgetsExtension" */,
+				9730CA783071DF0A00D871CF /* Release configuration for PBXNativeTarget "RanbooWidgetsExtension" */,
+			);
+			defaultConfigurationName = Release;
+		};
 		97970B58303E207800187A49 /* Build configuration list for PBXProject "RanbooSwiftUI" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
