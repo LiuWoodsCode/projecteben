@@ -791,10 +791,10 @@ final class DeviceViewModel: ObservableObject {
     
     func monitor() async {
         var thermalInterval: TimeInterval =
-        isLowPowerMode ? 30 : 5
+        isLowPowerMode ? 30 : 20
         
         var resourceInterval: TimeInterval =
-        isLowPowerMode ? 60 : 10
+        isLowPowerMode ? 60 : 30
         
         var nextThermalRefresh = Date().addingTimeInterval(5)
         var nextResourceRefresh = Date().addingTimeInterval(10)
