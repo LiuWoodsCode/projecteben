@@ -35,7 +35,7 @@ struct TemperatureProvider: AppIntentTimelineProvider {
             let value = try await fetchTemperature(host: host, sensor: configuration.sensor)
             return TemperatureEntry(date: .now, deviceAddress: host, sensor: configuration.sensor, temperature: value, error: nil)
         } catch {
-            return TemperatureEntry(date: .now, deviceAddress: host, sensor: configuration.sensor, temperature: nil, error: "Unable to connect")
+            return TemperatureEntry(date: .now, deviceAddress: host, sensor: configuration.sensor, temperature: nil, error: error.localizedDescription)
         }
     }
 
@@ -73,18 +73,23 @@ struct TemperatureWidgetView: View {
             }
 
             if let temperature = entry.temperature {
-                Text(temperature, format: .number.precision(.fractionLength(1)))
-                    .font(.system(size: 38, weight: .semibold, design: .rounded))
-                    .minimumScaleFactor(0.7)
-                    .lineLimit(1)
-                    .contentTransition(.numericText())
-                Text("°C")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                HStack(alignment: .firstTextBaseline, spacing: 4) {
+                    Text(temperature, format: .number.precision(.fractionLength(1)))
+                        .font(.system(size: 38, weight: .semibold, design: .rounded))
+                        .minimumScaleFactor(0.7)
+                        .lineLimit(1)
+                        .contentTransition(.numericText())
+                    Text("°C")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
+                TemperatureGauge(temperature: temperature, tint: temperatureTint(for: temperature))
             } else {
                 Text(entry.error ?? "No reading")
-                    .font(.headline)
+                    .font(.caption)
                     .foregroundStyle(.secondary)
+                    .lineLimit(3)
                 Text(entry.deviceAddress)
                     .font(.caption2)
                     .foregroundStyle(.tertiary)
@@ -99,6 +104,38 @@ struct TemperatureWidgetView: View {
             }
         }
         .containerBackground(.fill.tertiary, for: .widget)
+    }
+
+    private func temperatureTint(for value: Double) -> Color {
+        if value < 40 { return .cyan }
+        if value >= 85 { return .red }
+        if value >= 70 { return .orange }
+        if value >= 65 { return .yellow }
+        return .green
+    }
+}
+
+private struct TemperatureGauge: View {
+    let temperature: Double
+    let tint: Color
+
+    private var progress: CGFloat {
+        CGFloat(min(max(temperature / 120, 0), 1))
+    }
+
+    var body: some View {
+        GeometryReader { geometry in
+            ZStack(alignment: .leading) {
+                Capsule()
+                    .fill(.secondary.opacity(0.2))
+                Capsule()
+                    .fill(tint)
+                    .frame(width: geometry.size.width * progress)
+            }
+        }
+        .frame(height: 8)
+        .accessibilityLabel("Temperature gauge")
+        .accessibilityValue("\(Int(temperature.rounded())) degrees Celsius")
     }
 }
 

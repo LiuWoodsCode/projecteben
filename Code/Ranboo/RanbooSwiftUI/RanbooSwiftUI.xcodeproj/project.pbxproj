@@ -10,7 +10,37 @@
 		9730CA663071DF0800D871CF /* WidgetKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 9730CA653071DF0800D871CF /* WidgetKit.framework */; };
 		9730CA683071DF0800D871CF /* SwiftUI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 9730CA673071DF0800D871CF /* SwiftUI.framework */; };
 		9730CA7B3071DF0B00D871CF /* AppIntents.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 9730CA7C3071DF0B00D871CF /* AppIntents.framework */; };
+		9730CA933072CA8400D871CF /* RanbooWidgetsExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 9730CA633071DF0800D871CF /* RanbooWidgetsExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 /* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		9730CA943072CA8400D871CF /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 97970B55303E207800187A49 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 9730CA623071DF0800D871CF;
+			remoteInfo = RanbooWidgetsExtension;
+		};
+		9730CA973072CA8A00D871CF /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 97970B55303E207800187A49 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 9730CA623071DF0800D871CF;
+			remoteInfo = RanbooWidgetsExtension;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		9730CA963072CA8400D871CF /* Embed Foundation Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			dstPath = "";
+			dstSubfolder = PlugIns;
+			files = (
+				9730CA933072CA8400D871CF /* RanbooWidgetsExtension.appex in Embed Foundation Extensions */,
+			);
+			name = "Embed Foundation Extensions";
+		};
+/* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
 		9730CA633071DF0800D871CF /* RanbooWidgetsExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = RanbooWidgetsExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -120,8 +150,13 @@
 				97970B59303E207800187A49 /* Sources */,
 				97970B5A303E207800187A49 /* Frameworks */,
 				97970B5B303E207800187A49 /* Resources */,
+				9730CA963072CA8400D871CF /* Embed Foundation Extensions */,
 			);
 			buildRules = (
+			);
+			dependencies = (
+				9730CA953072CA8400D871CF /* PBXTargetDependency */,
+				9730CA983072CA8A00D871CF /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
 				97970B5F303E207800187A49 /* RanbooSwiftUI */,
@@ -195,6 +230,19 @@
 		};
 /* End PBXSourcesBuildPhase section */
 
+/* Begin PBXTargetDependency section */
+		9730CA953072CA8400D871CF /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 9730CA623071DF0800D871CF /* RanbooWidgetsExtension */;
+			targetProxy = 9730CA943072CA8400D871CF /* PBXContainerItemProxy */;
+		};
+		9730CA983072CA8A00D871CF /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 9730CA623071DF0800D871CF /* RanbooWidgetsExtension */;
+			targetProxy = 9730CA973072CA8A00D871CF /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
 /* Begin XCBuildConfiguration section */
 		9730CA773071DF0A00D871CF /* Debug configuration for PBXNativeTarget "RanbooWidgetsExtension" */ = {
 			isa = XCBuildConfiguration;
@@ -208,6 +256,7 @@
 				DEVELOPMENT_TEAM = "";
 				ENABLE_APP_SANDBOX = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				CODE_SIGN_ENTITLEMENTS = RanbooWidgets/RanbooWidgets.entitlements;
 				INFOPLIST_FILE = RanbooWidgets/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = RanbooSwiftUI;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
@@ -251,6 +300,7 @@
 				DEVELOPMENT_TEAM = "";
 				ENABLE_APP_SANDBOX = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				CODE_SIGN_ENTITLEMENTS = RanbooWidgets/RanbooWidgets.entitlements;
 				INFOPLIST_FILE = RanbooWidgets/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = RanbooSwiftUI;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
@@ -428,6 +478,7 @@
 				"INFOPLIST_KEY_UILaunchScreen_Generation[sdk=iphonesimulator*]" = YES;
 				"INFOPLIST_KEY_UIStatusBarStyle[sdk=iphoneos*]" = UIStatusBarStyleDefault;
 				"INFOPLIST_KEY_UIStatusBarStyle[sdk=iphonesimulator*]" = UIStatusBarStyleDefault;
+				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "Connect to your selected Ranboo device to read status and temperature data.";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				IPHONEOS_DEPLOYMENT_TARGET = 18.6;
@@ -485,6 +536,7 @@
 				"INFOPLIST_KEY_UILaunchScreen_Generation[sdk=iphonesimulator*]" = YES;
 				"INFOPLIST_KEY_UIStatusBarStyle[sdk=iphoneos*]" = UIStatusBarStyleDefault;
 				"INFOPLIST_KEY_UIStatusBarStyle[sdk=iphonesimulator*]" = UIStatusBarStyleDefault;
+				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "Connect to your selected Ranboo device to read status and temperature data.";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				IPHONEOS_DEPLOYMENT_TARGET = 18.6;
