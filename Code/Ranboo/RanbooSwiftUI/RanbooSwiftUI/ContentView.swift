@@ -1488,7 +1488,7 @@ struct DeviceDetailView: View {
     }
     
     private func openVnc() {
-        openVncOnPort(5901)
+        openVncOnPort(5900)
     }
     
     private func openSsh() {
