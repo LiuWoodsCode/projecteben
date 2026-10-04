@@ -11,6 +11,6 @@ import SwiftUI
 @main
 struct RanbooWidgetsBundle: WidgetBundle {
     var body: some Widget {
-        RanbooWidgets()
+        RanbooTemperatureWidget()
     }
 }
