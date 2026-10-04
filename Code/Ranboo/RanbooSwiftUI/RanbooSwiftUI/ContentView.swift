@@ -513,6 +513,7 @@ struct EbenAPIClient {
 @MainActor
 final class HostChecker: ObservableObject {
     @Published var hosts: [HostStatus] = [
+        HostStatus(address: "172.31.255.1"), // Project Eben loopback (set up by ironmouse, this should always be available if your eben is the gateway)
         HostStatus(address: "10.42.0.1"), // wifi ap
         HostStatus(address: "10.42.1.1"), // eth share
         HostStatus(address: "10.12.194.1"), // usb gadget
