@@ -5,7 +5,7 @@ struct ConfigurationAppIntent: WidgetConfigurationIntent {
     static var description = IntentDescription("Show temperatures from a Ranboo device.")
 
     @Parameter(title: "Device address", description: "The device hostname or IP address (port 8000 is used).")
-    var deviceAddress: String
+    var deviceAddress: String?
 
     @Parameter(title: "Temperature sensor", default: .cpu)
     var sensor: TemperatureSensor

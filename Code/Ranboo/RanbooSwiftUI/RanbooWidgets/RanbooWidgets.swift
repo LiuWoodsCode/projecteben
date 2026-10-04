@@ -26,7 +26,7 @@ struct TemperatureProvider: AppIntentTimelineProvider {
     }
 
     private func makeEntry(_ configuration: ConfigurationAppIntent) async -> TemperatureEntry {
-        let host = configuration.deviceAddress.trimmingCharacters(in: .whitespacesAndNewlines)
+        let host = configuration.deviceAddress?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         guard !host.isEmpty else {
             return TemperatureEntry(date: .now, deviceAddress: "", sensor: configuration.sensor, temperature: nil, error: "Set a device address")
         }

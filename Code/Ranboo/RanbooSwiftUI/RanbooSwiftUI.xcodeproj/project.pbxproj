@@ -9,6 +9,7 @@
 /* Begin PBXBuildFile section */
 		9730CA663071DF0800D871CF /* WidgetKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 9730CA653071DF0800D871CF /* WidgetKit.framework */; };
 		9730CA683071DF0800D871CF /* SwiftUI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 9730CA673071DF0800D871CF /* SwiftUI.framework */; };
+		9730CA7B3071DF0B00D871CF /* AppIntents.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 9730CA7C3071DF0B00D871CF /* AppIntents.framework */; };
 		9730CA753071DF0A00D871CF /* RanbooWidgetsExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 9730CA633071DF0800D871CF /* RanbooWidgetsExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 /* End PBXBuildFile section */
 
@@ -38,6 +39,7 @@
 		9730CA633071DF0800D871CF /* RanbooWidgetsExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = RanbooWidgetsExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		9730CA653071DF0800D871CF /* WidgetKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = WidgetKit.framework; path = /System/Library/Frameworks/WidgetKit.framework; sourceTree = "<absolute>"; };
 		9730CA673071DF0800D871CF /* SwiftUI.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = SwiftUI.framework; path = /System/Library/Frameworks/SwiftUI.framework; sourceTree = "<absolute>"; };
+		9730CA7C3071DF0B00D871CF /* AppIntents.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = AppIntents.framework; path = /System/Library/Frameworks/AppIntents.framework; sourceTree = "<absolute>"; };
 		97970B5D303E207800187A49 /* RanbooSwiftUI.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = RanbooSwiftUI.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
@@ -71,6 +73,7 @@
 		9730CA603071DF0800D871CF /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			files = (
+				9730CA7B3071DF0B00D871CF /* AppIntents.framework in Frameworks */,
 				9730CA683071DF0800D871CF /* SwiftUI.framework in Frameworks */,
 				9730CA663071DF0800D871CF /* WidgetKit.framework in Frameworks */,
 			);
@@ -86,6 +89,7 @@
 		9730CA643071DF0800D871CF /* Frameworks */ = {
 			isa = PBXGroup;
 			children = (
+				9730CA7C3071DF0B00D871CF /* AppIntents.framework */,
 				9730CA653071DF0800D871CF /* WidgetKit.framework */,
 				9730CA673071DF0800D871CF /* SwiftUI.framework */,
 			);
@@ -240,7 +244,7 @@
 				ENABLE_APP_SANDBOX = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = RanbooWidgets/Info.plist;
-				INFOPLIST_KEY_CFBundleDisplayName = RanbooWidgets;
+				INFOPLIST_KEY_CFBundleDisplayName = RanbooSwiftUI;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				IPHONEOS_DEPLOYMENT_TARGET = 27.0;
 				LD_RUNPATH_SEARCH_PATHS = (
@@ -283,7 +287,7 @@
 				ENABLE_APP_SANDBOX = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = RanbooWidgets/Info.plist;
-				INFOPLIST_KEY_CFBundleDisplayName = RanbooWidgets;
+				INFOPLIST_KEY_CFBundleDisplayName = RanbooSwiftUI;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				IPHONEOS_DEPLOYMENT_TARGET = 27.0;
 				LD_RUNPATH_SEARCH_PATHS = (
