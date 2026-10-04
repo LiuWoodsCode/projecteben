@@ -205,16 +205,12 @@ class Api:
         if dry_run:
             print(f"Would run (bash ;): {groups}")
             return CommandResult(command_tuple, 0, "", "")
-
-        print(f"running command with bash ';' semantics: {groups}")
-
+        
         final_returncode = 0
         stdout_parts = []
         stderr_parts = []
 
         for group in groups:
-            print(f"running command: {tuple(group)}")
-
             completed = subprocess.run(
                 tuple(group),
                 stdout=subprocess.PIPE,
