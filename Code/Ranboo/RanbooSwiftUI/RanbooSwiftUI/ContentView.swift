@@ -1253,6 +1253,7 @@ struct DeviceDetailView: View {
             LabeledContent("Revision", value: display(model.info.revision))
             uptimeRow
         }
+        .textSelection(.enabled)
     }
     
     private var osSection: some View {
@@ -1260,6 +1261,7 @@ struct DeviceDetailView: View {
             LabeledContent("Kernel", value: display(model.info.kernelVersion))
             LabeledContent("Cmdline", value: display(model.info.cmdline))
         }
+        .textSelection(.enabled)
     }
     private var uptimeRow: some View {
         TimelineView(.periodic(from: .now, by: 1)) { context in
@@ -1288,6 +1290,7 @@ struct DeviceDetailView: View {
                 Text("No memory data").foregroundStyle(.secondary)
             }
         }
+        .textSelection(.enabled)
     }
     
     @ViewBuilder
@@ -1309,6 +1312,7 @@ struct DeviceDetailView: View {
             temperatureRow("GPU", value: model.thermal.gpu)
             temperatureRow("PMIC", value: model.thermal.pmic)
         }
+        .textSelection(.enabled)
     }
     
     @ViewBuilder
@@ -1328,6 +1332,7 @@ struct DeviceDetailView: View {
                 Text("No throttling data").foregroundStyle(.secondary)
             }
         }
+        .textSelection(.enabled)
     }
     
     private var remoteDesktopSection: some View {
@@ -1642,6 +1647,7 @@ private struct DiskUsageView: View {
             LabeledContent("Filesystem", value: display(disk.fstype))
         }
         .padding(.vertical, 4)
+        .textSelection(.enabled)
     }
     
     private func display(_ value: String) -> String {
@@ -1776,7 +1782,9 @@ struct FanControlsView: View {
                 .disabled(model.isUpdatingFan || fan.governor == nil)
                 
                 LabeledContent("Control", value: controlDescription(fan.control))
+                    .textSelection(.enabled)
                 LabeledContent("Current state", value: stateDescription(fan))
+                    .textSelection(.enabled)
                 
                 if let maxState = fan.maxState, maxState > 0 {
                     VStack(alignment: .leading, spacing: 8) {
@@ -1784,6 +1792,7 @@ struct FanControlsView: View {
                             "Manual state",
                             value: "\(Int(selectedState.rounded())) / \(maxState)"
                         )
+                        .textSelection(.enabled)
                         Slider(
                             value: $selectedState,
                             in: 0...Double(maxState),
