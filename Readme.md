@@ -5,8 +5,8 @@ Project Eben is a project to make a portable Raspberry Pi that strays from the t
 > [!CAUTION]
 > This software is under development and currently should not be used in production as of right now.
 
-> [!IMPORTANT]
-> No installers for system components are currently provided. Proceed at your own risk!
+## Install
+Make sure passwordless sudo is enabled in raspi-config, then run all scripts in Code/Grian/Eben/Factory with sudo.
 
 ## Eben 
 
