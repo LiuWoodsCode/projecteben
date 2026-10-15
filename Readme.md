@@ -8,6 +8,14 @@ Project Eben is a project to make a portable Raspberry Pi that strays from the t
 ## Install
 Make sure passwordless sudo is enabled in raspi-config, then run all scripts in Code/Grian/Eben/Factory with sudo.
 
+### USB gadget mode
+In addition, if you want to use a single USB-C cable for power and communication, run the following command:
+`sudo rpi-usb-gadget on`
+This will allow the USB-C port to be used with a USB-A or USB-C to USB-C cable to expose the Raspberry Pi as a USB Ethernet adapter.
+
+## Usage
+Navigate to http://172.31.255.1:8000 in your web browser.
+
 ## Eben 
 
 Project Eben is meant to be an extension to another PC, especially one you do not fully control (school, no admin, locked down OS, etc), with the ability to plug in your own I/O if you choose to do so.
