@@ -42,3 +42,7 @@ into a powerful cyberdeck.
 
 ## Stockwood
 Stockwood is another take on the Project Eben idea. While it still can be used as Eben as it still runs Ironmouse and Ranboo, it also includes it's own screen and battery and is meant to be used as it's own self contained system.
+
+## Legal
+This project is under a few seperate licenses:
+* [Inclusive Sans](Code/Salvato/Fonts/InclusiveSans/Readme.md) is licensed under the SIL Open Font License 1.1, located in [OPL.txt](Code/Salvato/Fonts/InclusiveSans/OPL.txt)
