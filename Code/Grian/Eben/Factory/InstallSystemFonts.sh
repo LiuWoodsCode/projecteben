@@ -43,6 +43,11 @@ cat > /etc/fonts/conf.d/99-projecteben-inclusive-sans.conf <<'EOF'
 EOF
 chmod 644 /etc/fonts/conf.d/99-projecteben-inclusive-sans.conf
 fc-cache -f "$target_dir"
+resolved_family="$(fc-match --format '%{family}' 'Inclusive Sans:style=Regular')"
+if [[ "$resolved_family" != 'Inclusive Sans' ]]; then
+    echo "Fontconfig could not resolve Inclusive Sans after installation (got: $resolved_family)." >&2
+    exit 1
+fi
 
 # Update only gtk-font-name inside [Settings], keeping unrelated GTK options.
 python3 - "$font_name" <<'PY'
