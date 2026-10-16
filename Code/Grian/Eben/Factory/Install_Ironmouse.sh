@@ -53,6 +53,8 @@ ETH_NORMAL_AUTOCONNECT_PRIORITY="0"
 # ==============================================================================
 
 SCRIPT_PATH="/usr/local/bin/rpi-hotspot"
+NOAP_SCRIPT_PATH="/usr/local/libexec/rpi-hotspot-noap.py"
+NOAP_SERVICE="rpi-hotspot-noap.service"
 DESKTOP_DIR="$HOME/.local/share/applications"
 
 HOTSPOT_CONN="rpi-hotspot-ap"
@@ -68,6 +70,11 @@ echo "[*] Installing Raspberry Pi hotspot + Ethernet sharing setup..."
 if ! command -v nmcli >/dev/null 2>&1; then
     echo "ERROR: nmcli is not installed."
     echo "Install NetworkManager first."
+    exit 1
+fi
+
+if ! command -v python3 >/dev/null 2>&1 || ! command -v systemctl >/dev/null 2>&1; then
+    echo "ERROR: python3 and systemctl are required for the boot-time AP check."
     exit 1
 fi
 
@@ -580,10 +587,8 @@ sudo chmod 755 "$SCRIPT_PATH"
 # Remove obsolete service from installations of an older version
 # ------------------------------------------------------------------------------
 
-# We deliberately DO NOT install a systemd service.
-#
-# If this setup script is being run on a system containing the previous
-# implementation, remove the old service so it cannot race NetworkManager.
+# The old service started the AP itself. Remove it so NetworkManager remains
+# responsible for autoconnecting the AP.
 
 if systemctl list-unit-files rpi-hotspot.service \
     --no-legend 2>/dev/null |
@@ -595,6 +600,110 @@ if systemctl list-unit-files rpi-hotspot.service \
     sudo rm -f /etc/systemd/system/rpi-hotspot.service
     sudo systemctl daemon-reload
 fi
+
+# ------------------------------------------------------------------------------
+# Check removable and other mounted filesystem roots after the AP starts
+# ------------------------------------------------------------------------------
+
+echo "[*] Installing boot-time EBEN_NOAP check..."
+
+sudo install -d -m 755 /usr/local/libexec
+sudo tee "$NOAP_SCRIPT_PATH" > /dev/null <<'PYTHON'
+#!/usr/bin/python3
+"""Disable the NetworkManager AP when a mount root contains EBEN_NOAP."""
+
+import os
+import re
+import subprocess
+import sys
+import time
+
+AP_NAME = "rpi-hotspot-ap"
+AP_DEVICE = "wlan0"
+MARKER = "EBEN_NOAP"
+SKIP_MOUNTS = {"/", "/boot/firmware"}
+
+
+def ap_active():
+    result = subprocess.run(
+        ["nmcli", "-t", "-f", "NAME,DEVICE", "connection", "show", "--active"],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    return f"{AP_NAME}:{AP_DEVICE}" in result.stdout.splitlines()
+
+
+def mount_roots():
+    # mountinfo escapes spaces and other special characters with octal codes.
+    with open("/proc/self/mountinfo", encoding="utf-8") as mountinfo:
+        for line in mountinfo:
+            mount = line.split(" - ", 1)[0].split()[4]
+            path = re.sub(
+                r"\\([0-7]{3})",
+                lambda match: chr(int(match.group(1), 8)),
+                mount,
+            )
+            if path not in SKIP_MOUNTS:
+                yield path
+
+
+def main():
+    # NetworkManager may still be autoconnecting when this unit starts.
+    for _ in range(60):
+        try:
+            if ap_active():
+                break
+        except subprocess.CalledProcessError:
+            pass
+        time.sleep(1)
+    else:
+        print("AP did not become active within 60 seconds", file=sys.stderr)
+        return 1
+
+    for attempt in range(3):
+        for mount in mount_roots():
+            if os.path.lexists(os.path.join(mount, MARKER)):
+                print(f"Found {MARKER} at {mount}; disabling AP")
+                result = subprocess.run(["nmcli", "connection", "down", AP_NAME])
+                if result.returncode == 0 or not ap_active():
+                    return 0
+                return 1
+        if attempt < 2:
+            time.sleep(5)
+
+    print(f"No {MARKER} found after three scans; leaving AP active")
+    return 0
+
+
+if __name__ == "__main__":
+    try:
+        sys.exit(main())
+    except (OSError, subprocess.CalledProcessError) as error:
+        print(f"AP check failed: {error}", file=sys.stderr)
+        sys.exit(1)
+PYTHON
+sudo chmod 755 "$NOAP_SCRIPT_PATH"
+
+sudo tee "/etc/systemd/system/$NOAP_SERVICE" > /dev/null <<EOF
+[Unit]
+Description=Disable Wi-Fi AP when a mount root contains EBEN_NOAP
+Wants=NetworkManager.service
+After=NetworkManager.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/bin/python3 $NOAP_SCRIPT_PATH
+Restart=on-failure
+RestartSec=5s
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+sudo systemctl daemon-reload
+sudo systemctl enable "$NOAP_SERVICE"
 
 # ------------------------------------------------------------------------------
 # Create menu shortcuts
@@ -691,7 +800,7 @@ echo " - Ethernet sharing:  $FACTORY_ETHERNET_SHARED_AUTOCONNECT"
 echo
 echo "Boot behavior:"
 echo " - NetworkManager directly owns startup networking."
-echo " - No rpi-hotspot systemd service is installed."
+echo " - $NOAP_SERVICE checks mounted filesystems once after the AP starts."
 echo " - $HOTSPOT_CONN autoconnect: $FACTORY_WIFI_HOTSPOT_AUTOCONNECT"
 echo " - $ETH_SHARED_CONN autoconnect: $FACTORY_ETHERNET_SHARED_AUTOCONNECT"
 echo " - $ETH_NORMAL_CONN autoconnect: no"
